@@ -30,7 +30,8 @@ Change these before production. Env vars: see `backend/.env.example`.
 **Quick account picker (local dev only):** start the backend with `DEV_LOGIN=true` (a local `backend/.env` containing that line is enough) and the login page and `/absen` list every account to click — no password. It is an authentication bypass by design: it is **off by default**, routes return 404 when off, the backend logs a warning when on, and it must never be enabled in production.
 
 ## Dokumentasi
-- [docs/DEPLOY.md](docs/DEPLOY.md) — deploy ke VPS (GitHub, Docker, HTTPS, backup, update, troubleshooting)
+- [docs/DEPLOY-VPS.md](docs/DEPLOY-VPS.md) — deploy ke VPS lewat **IP publik, tanpa Docker/domain** (Nginx + systemd, gaya ayt-sales)
+- [docs/DEPLOY.md](docs/DEPLOY.md) — deploy dengan Docker + domain (HTTPS otomatis Caddy), backup, update
 - [docs/TESTING.md](docs/TESTING.md) — panduan uji semua fitur per modul + smoke test produksi
 - [docs/development-plan.md](docs/development-plan.md) — rencana & keputusan desain
 

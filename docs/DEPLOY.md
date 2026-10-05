@@ -1,4 +1,6 @@
-# Deploy ke VPS — langkah demi langkah
+# Deploy ke VPS — langkah demi langkah (Docker + domain)
+
+> Belum punya domain / ingin gaya ayt-sales (Nginx + systemd, akses lewat IP)? Pakai **[DEPLOY-VPS.md](DEPLOY-VPS.md)**.
 
 Arsitektur produksi (semua dalam Docker, hanya port 80/443 yang terbuka):
 

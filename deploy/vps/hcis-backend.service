@@ -1,0 +1,24 @@
+[Unit]
+Description=CORE HCIS Backend (Go)
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=hcis
+Group=hcis
+WorkingDirectory=/var/www/dea-core-hcis/backend
+ExecStart=/var/www/dea-core-hcis/backend/hcis-backend
+# semua konfigurasi (rahasia) ada di file ini, bukan di folder kode
+EnvironmentFile=/etc/hcis/backend.env
+Restart=always
+RestartSec=5
+# hardening ringan
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/hcis
+
+[Install]
+WantedBy=multi-user.target
