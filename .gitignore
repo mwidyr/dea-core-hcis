@@ -1,0 +1,12 @@
+node_modules
+dist
+.env
+.idea
+*.local
+uploads
+.env.prod
+backups
+*.sql
+*.sql.gz
+*.tgz
+.DS_Store

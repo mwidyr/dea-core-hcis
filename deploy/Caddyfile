@@ -1,0 +1,28 @@
+# {$DOMAIN} comes from .env.prod, e.g. hcis.perusahaan.co.id (its DNS A record must point to this server).
+# Caddy gets and renews the HTTPS certificate by itself.
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		# the public attendance page needs GPS from this origin only
+		Permissions-Policy "geolocation=(self), camera=(), microphone=()"
+		-Server
+	}
+
+	handle /api/* {
+		request_body {
+			max_size 12MB
+		}
+		reverse_proxy backend:8080
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

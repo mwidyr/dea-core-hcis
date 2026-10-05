@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body { @apply bg-surface text-[#22252b] font-sans; }
+}
+
+@layer components {
+  .card { @apply bg-white border border-line rounded-xl shadow-card; }
+  .btn { @apply border border-line bg-white text-gray-700 px-3 py-2 rounded-lg text-xs hover:bg-gray-50; }
+  .btn-primary { @apply bg-brand border border-brand text-white font-semibold px-3 py-2 rounded-lg text-xs hover:opacity-90; }
+  .input { @apply border border-line rounded-lg px-3 py-2 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-brand/20; }
+  .th { @apply text-left text-[10px] uppercase tracking-wider text-muted font-bold px-3 py-2 bg-gray-50 whitespace-nowrap; }
+  .td { @apply px-3 py-2.5 text-xs border-t border-line; }
+}
+
+/* Org chart tree: centred, with connector lines between every level */
+.org-tree { --c: #c5cad1; display: flex; justify-content: center; }
+.org-tree ul { display: flex; justify-content: center; padding-top: 22px; position: relative; margin: 0; list-style: none; }
+.org-tree li { position: relative; text-align: center; padding: 22px 8px 0; list-style: none; }
+/* horizontal bars joining siblings + short drop to each child */
+.org-tree li::before, .org-tree li::after { content: ''; position: absolute; top: 0; right: 50%; width: 50%; height: 22px; border-top: 1px solid var(--c); }
+.org-tree li::after { right: auto; left: 50%; border-left: 1px solid var(--c); }
+.org-tree li:only-child::before, .org-tree li:only-child::after { display: none; }
+.org-tree li:only-child { padding-top: 0; }
+.org-tree li:first-child::before, .org-tree li:last-child::after { border: 0 none; }
+.org-tree li:last-child::before { border-right: 1px solid var(--c); border-radius: 0 6px 0 0; }
+.org-tree li:first-child::after { border-radius: 6px 0 0 0; }
+/* vertical stem from a parent card down to its children bar */
+.org-tree li > ul::before { content: ''; position: absolute; top: 0; left: 50%; height: 22px; border-left: 1px solid var(--c); }
+.org-tree li:only-child > ul { padding-top: 22px; }
+/* top-level roots: no sibling bars */
+.org-tree > ul { padding-top: 0; }
+.org-tree > ul > li { padding-top: 0; }
+.org-tree > ul > li::before, .org-tree > ul > li::after { display: none; }
+.org-node { display: inline-block; min-width: 128px; max-width: 170px; background: #fff; border: 1px solid #e7e8eb; border-radius: 10px; padding: 8px 10px; box-shadow: 0 2px 8px rgba(29,33,40,.06); position: relative; z-index: 1; }
