@@ -48,7 +48,7 @@ export const deleteLocation = (id: number) => api.delete(`/org/locations/${id}`)
 
 // Employees
 export const getEmployees = (params?: object) =>
-  api.get<{ data: Employee[]; total: number; page: number; page_size: number; stats: { active: number; tetap: number; kontrak: number; multi: number; expiring: number } }>('/employees', { params })
+  api.get<{ data: Employee[]; total: number; page: number; page_size: number; stats: { active: number; tetap: number; kontrak: number; freelance: number; multi: number; expiring: number } }>('/employees', { params })
 export const getEmployee = (id: number) => api.get<Employee>(`/employees/${id}`)
 export const saveEmployee = (d: Partial<Employee>) => (d.id ? api.put(`/employees/${d.id}`, d) : api.post('/employees', d))
 export const deleteEmployee = (id: number) => api.delete(`/employees/${id}`)

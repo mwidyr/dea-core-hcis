@@ -120,7 +120,7 @@ export interface PermDef { key: string; label: string; group: string; hint?: str
 export interface ReportData { type: string; title: string; subtitle: string; columns: string[]; rows: (string | number)[][]; summary: string[][]; can_export: boolean }
 export interface DashboardData {
   scope: string
-  people: { active: number; tetap: number; kontrak: number; expiring: number; vacant: number }
+  people: { active: number; tetap: number; kontrak: number; freelance: number; expiring: number; vacant: number }
   attendance: { scheduled: number; present: number; late: number; leave: number; absent: number; trend: { date: string; label: string; present: number; late: number; leave: number; absent: number }[] }
   tasks: { status: Record<string, number>; overdue: number; due_week: number; weekly: { label: string; created: number; completed: number }[] }
   me: { open_tasks: number; overdue_tasks: number; pending_approvals: number }

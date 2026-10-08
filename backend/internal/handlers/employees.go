@@ -57,9 +57,11 @@ func ListEmployees(c *gin.Context) {
 	q.Count(&total)
 	// stats cover the whole business scope, independent of search/filter/page
 	base := employeeBizScope(c, database.DB.Model(&models.Employee{})).Where("employees.status = 'Aktif'")
-	var active, tetap, multi, expiring int64
+	var active, tetap, kontrak, freelance, multi, expiring int64
 	base.Count(&active)
 	base.Session(&gorm.Session{}).Where("employees.employee_type = ?", "Tetap").Count(&tetap)
+	base.Session(&gorm.Session{}).Where("employees.employee_type = ?", "Kontrak").Count(&kontrak)
+	base.Session(&gorm.Session{}).Where("employees.employee_type = ?", "Freelance").Count(&freelance)
 	base.Session(&gorm.Session{}).Where("employees.id IN (SELECT employee_id FROM employee_placements GROUP BY employee_id HAVING COUNT(*) > 1)").Count(&multi)
 	base.Session(&gorm.Session{}).Where("employees.contract_end IS NOT NULL AND employees.contract_end <= ?", time.Now().AddDate(0, 0, 30)).Count(&expiring)
 
@@ -76,7 +78,7 @@ func ListEmployees(c *gin.Context) {
 		Preload("Placements.Position").Preload("Placements.Business").
 		Order("employees.name").Limit(size).Offset((page - 1) * size).Find(&l)
 	c.JSON(http.StatusOK, gin.H{"data": l, "total": total, "page": page, "page_size": size,
-		"stats": gin.H{"active": active, "tetap": tetap, "kontrak": active - tetap, "multi": multi, "expiring": expiring}})
+		"stats": gin.H{"active": active, "tetap": tetap, "kontrak": kontrak, "freelance": freelance, "multi": multi, "expiring": expiring}})
 }
 
 func GetEmployee(c *gin.Context) {
@@ -150,7 +152,7 @@ func SaveEmployee(c *gin.Context) {
 			return
 		}
 	}
-	if in.EmployeeType != "Kontrak" {
+	if in.EmployeeType != "Kontrak" && in.EmployeeType != "Freelance" { // freelance may carry an optional engagement period
 		in.ContractStart, in.ContractEnd = nil, nil
 	}
 	// n+1: default manager = holder of the position this position reports to

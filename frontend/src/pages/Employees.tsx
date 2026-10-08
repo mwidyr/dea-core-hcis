@@ -43,7 +43,7 @@ export default function Employees() {
   const [q, setQ] = useState('')
   const [type, setType] = useState('')
   const [status, setStatus] = useState('')
-  const [stats, setStats] = useState({ active: 0, tetap: 0, kontrak: 0, multi: 0, expiring: 0 })
+  const [stats, setStats] = useState({ active: 0, tetap: 0, kontrak: 0, freelance: 0, multi: 0, expiring: 0 })
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [positions, setPositions] = useState<Position[]>([])
@@ -94,16 +94,17 @@ export default function Employees() {
 
   return (
     <Layout title="Karyawan" subtitle="Employee Management 360">
-      <div className="grid grid-cols-4 gap-3 mb-3">
+      <div className="grid grid-cols-5 gap-3 mb-3">
         <StatCard label="Karyawan Aktif" value={stats.active} />
         <StatCard label="Tetap" value={stats.tetap} />
         <StatCard label="Kontrak" value={stats.kontrak} />
+        <StatCard label="Freelance" value={stats.freelance} />
         <StatCard label="Kontrak ≤ 30 Hari · Multi Penempatan" value={`${stats.expiring} · ${stats.multi}`} />
       </div>
       <div className="card p-3">
         <div className="flex flex-wrap gap-2 mb-3">
           <input className="input w-64" placeholder="Cari nama, email, jabatan…" value={q} onChange={(e) => setQ(e.target.value)} />
-          <select className="input" value={type} onChange={(e) => setType(e.target.value)}><option value="">Semua Jenis</option><option>Tetap</option><option>Kontrak</option></select>
+          <select className="input" value={type} onChange={(e) => setType(e.target.value)}><option value="">Semua Jenis</option><option>Tetap</option><option>Kontrak</option><option>Freelance</option></select>
           <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}><option value="">Semua Status</option>{STATUSES.map((s) => <option key={s}>{s}</option>)}</select>
           {canEdit && <button className="btn-primary ml-auto" onClick={addNew}><Plus className="w-3.5 h-3.5 inline mr-1" />Karyawan</button>}
         </div>
@@ -121,7 +122,7 @@ export default function Employees() {
                     <td className="td">{e.position?.title ?? '-'}</td>
                     <td className="td">{e.location?.name ?? '-'}</td>
                     <td className="td">{tenure(e.join_date)}</td>
-                    <td className="td">{e.contract_end ? <>PKWT · s.d. {fmt(e.contract_end)} <Badge tone={dl! <= 30 ? 'red' : 'amber'}>{dl} hari lagi</Badge></> : <Badge tone="green">{e.employee_type}</Badge>}</td>
+                    <td className="td">{e.contract_end ? <>{e.employee_type === 'Freelance' ? 'Freelance' : 'PKWT'} · s.d. {fmt(e.contract_end)} <Badge tone={dl! <= 30 ? 'red' : 'amber'}>{dl} hari lagi</Badge></> : <Badge tone="green">{e.employee_type}</Badge>}</td>
                     <td className="td">{extra.length ? extra.map((p) => `${p.business?.name} — ${p.position?.title}`).join(', ') : '—'}</td>
                     <td className="td"><Badge tone={statusTone[e.status] ?? 'gray'}>{e.status}</Badge></td>
                     <td className="td whitespace-nowrap">
@@ -276,13 +277,13 @@ function EmployeeForm({ form, setForm, businesses, positions, locations, lockedB
             </select>
           </L>
           <L label="Jenis Karyawan">
-            <select className="input w-full" value={form.employee_type} onChange={(e) => set('employee_type', e.target.value)}><option>Tetap</option><option>Kontrak</option></select>
+            <select className="input w-full" value={form.employee_type} onChange={(e) => set('employee_type', e.target.value)}><option>Tetap</option><option>Kontrak</option><option>Freelance</option></select>
           </L>
         </div>
-        {form.employee_type === 'Kontrak' && (
+        {(form.employee_type === 'Kontrak' || form.employee_type === 'Freelance') && (
           <div className="grid grid-cols-2 gap-3">
-            <L label="Kontrak Mulai"><input className="input w-full" type="date" value={day(form.contract_start)} onChange={(e) => set('contract_start', e.target.value)} /></L>
-            <L label="Kontrak Berakhir"><input className="input w-full" type="date" value={day(form.contract_end)} onChange={(e) => set('contract_end', e.target.value)} /></L>
+            <L label={form.employee_type === 'Freelance' ? 'Periode Mulai' : 'Kontrak Mulai'}><input className="input w-full" type="date" value={day(form.contract_start)} onChange={(e) => set('contract_start', e.target.value)} /></L>
+            <L label={form.employee_type === 'Freelance' ? 'Periode Berakhir' : 'Kontrak Berakhir'}><input className="input w-full" type="date" value={day(form.contract_end)} onChange={(e) => set('contract_end', e.target.value)} /></L>
           </div>
         )}
 

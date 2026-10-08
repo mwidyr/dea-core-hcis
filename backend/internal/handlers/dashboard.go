@@ -17,10 +17,15 @@ func Dashboard(c *gin.Context) {
 	out := gin.H{"scope": scopeName(c)}
 
 	// people
-	tetap, expiring := 0, 0
+	tetap, kontrak, freelance, expiring := 0, 0, 0, 0
 	for _, e := range emps {
-		if e.EmployeeType == "Tetap" {
+		switch e.EmployeeType {
+		case "Tetap":
 			tetap++
+		case "Freelance":
+			freelance++
+		default:
+			kontrak++
 		}
 		if e.ContractEnd != nil && !day(*e.ContractEnd).After(now.AddDate(0, 0, 30)) {
 			expiring++
@@ -31,7 +36,7 @@ func Dashboard(c *gin.Context) {
 		scopeBusiness(c, database.DB.Model(&models.Position{}), "positions.business_id").
 			Where("positions.id NOT IN (SELECT position_id FROM employee_placements WHERE position_id IS NOT NULL) AND positions.id NOT IN (SELECT position_id FROM employees WHERE position_id IS NOT NULL AND status = 'Aktif')").Count(&vacant)
 	}
-	out["people"] = gin.H{"active": len(emps), "tetap": tetap, "kontrak": len(emps) - tetap, "expiring": expiring, "vacant": vacant}
+	out["people"] = gin.H{"active": len(emps), "tetap": tetap, "kontrak": kontrak, "freelance": freelance, "expiring": expiring, "vacant": vacant}
 
 	// attendance today + last 7 days
 	type dayPoint struct {

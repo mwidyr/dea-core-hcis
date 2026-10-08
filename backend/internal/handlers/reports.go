@@ -160,7 +160,7 @@ func buildReport(c *gin.Context, typ string) (reportData, int, string) {
 			mgr[e.ID] = e.Name
 		}
 		rep.Columns = []string{"NIK", "Nama", "Bisnis", "Unit", "Jabatan", "Lokasi", "Tipe", "Tgl Bergabung", "Kontrak Berakhir", "Atasan"}
-		tetap := 0
+		tetap, freelance := 0, 0
 		for _, e := range es {
 			var unit, pos, loc, biz string
 			if e.Unit != nil {
@@ -179,12 +179,15 @@ func buildReport(c *gin.Context, typ string) (reportData, int, string) {
 			if e.ManagerID != nil {
 				m = mgr[*e.ManagerID]
 			}
-			if e.EmployeeType == "Tetap" {
+			switch e.EmployeeType {
+			case "Tetap":
 				tetap++
+			case "Freelance":
+				freelance++
 			}
 			rep.Rows = append(rep.Rows, []any{e.NIK, e.Name, biz, unit, pos, loc, e.EmployeeType, fmtDate(e.JoinDate), fmtDate(e.ContractEnd), m})
 		}
-		rep.Summary = [][]string{{"Karyawan aktif", strconv.Itoa(len(es))}, {"Tetap", strconv.Itoa(tetap)}, {"Kontrak", strconv.Itoa(len(es) - tetap)}}
+		rep.Summary = [][]string{{"Karyawan aktif", strconv.Itoa(len(es))}, {"Tetap", strconv.Itoa(tetap)}, {"Kontrak", strconv.Itoa(len(es) - tetap - freelance)}, {"Freelance", strconv.Itoa(freelance)}}
 
 	case "attendance":
 		from, to, msg := rangeParams(c)

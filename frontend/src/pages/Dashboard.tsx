@@ -44,7 +44,7 @@ export default function Dashboard() {
   return (
     <Layout title="Dashboard" subtitle={`Ringkasan operasional · ${d.scope}`}>
       <div className="grid grid-cols-6 gap-3 mb-3">
-        <StatCard label="Karyawan Aktif" value={d.people.active} foot={`${d.people.tetap} tetap · ${d.people.kontrak} kontrak`} />
+        <StatCard label="Karyawan Aktif" value={d.people.active} foot={`${d.people.tetap} tetap · ${d.people.kontrak} kontrak · ${d.people.freelance} freelance`} />
         <StatCard label="Hadir Hari Ini" value={`${a.present}/${a.scheduled}`} foot="dari jadwal kerja hari ini" />
         <StatCard label="Terlambat Hari Ini" value={a.late} foot={`${a.leave} cuti/izin/sakit`} />
         <StatCard label="Tugas Terlambat" value={<span className={d.tasks.overdue > 0 ? 'text-brand' : ''}>{d.tasks.overdue}</span>} foot={`${d.tasks.due_week} jatuh tempo 7 hari`} />
