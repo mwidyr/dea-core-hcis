@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"math"
+	"mime/multipart"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -56,18 +59,41 @@ func PublicClock(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"now": now.UTC().Format(time.RFC3339Nano), "ms": now.UnixMilli(), "timezone": "Asia/Jakarta"})
 }
 
+// PublicAttendance takes a multipart form: identifier + password (or dev_user_id), action, lat/lng/accuracy and the
+// camera `photo`. The photo is mandatory: a tap without one is refused before anything else happens.
 func PublicAttendance(c *gin.Context) {
-	var in struct {
-		Identifier string   `json:"identifier"`
-		Password   string   `json:"password"`
-		DevUserID  uint     `json:"dev_user_id"` // DEV_LOGIN only: tap as this user without a password
-		Action     string   `json:"action"`
-		Lat        *float64 `json:"lat"`
-		Lng        *float64 `json:"lng"`
-		Accuracy   *float64 `json:"accuracy"`
+	if !strings.HasPrefix(c.ContentType(), "multipart/") { // a page cached from before photos became mandatory
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Halaman absensi sudah diperbarui dan kini memerlukan foto. Muat ulang halaman (Ctrl/Cmd+Shift+R) lalu coba lagi."})
+		return
 	}
-	if err := c.ShouldBindJSON(&in); err != nil || (in.Action != "in" && in.Action != "out") {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxPhotoUpload+(1<<20))
+	if err := c.Request.ParseMultipartForm(8 << 20); err != nil {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "Data yang dikirim terlalu besar atau tidak valid. Ambil ulang foto lalu coba lagi."})
+		return
+	}
+	num := func(k string) *float64 {
+		v, err := strconv.ParseFloat(strings.TrimSpace(c.PostForm(k)), 64)
+		if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
+			return nil
+		}
+		return &v
+	}
+	devID, _ := strconv.Atoi(c.PostForm("dev_user_id"))
+	in := struct {
+		Identifier string
+		Password   string
+		DevUserID  uint // DEV_LOGIN only: tap as this user without a password
+		Action     string
+		Lat, Lng   *float64
+		Accuracy   *float64
+	}{c.PostForm("identifier"), c.PostForm("password"), uint(devID), c.PostForm("action"), num("lat"), num("lng"), num("accuracy")}
+	if in.Action != "in" && in.Action != "out" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "NIK/email, password, dan aksi (tap in / tap out) wajib diisi"})
+		return
+	}
+	photo, err := c.FormFile("photo")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Foto wajib diambil sebelum Tap In/Out."})
 		return
 	}
 	if in.DevUserID != 0 && DevLoginEnabled { // local-development shortcut: no password, otherwise identical rules (GPS, schedule, …)
@@ -77,7 +103,7 @@ func PublicAttendance(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "akun uji tidak valid atau tidak terhubung ke data karyawan"})
 			return
 		}
-		tapAs(c, du, in.Action, in.Lat, in.Lng, in.Accuracy)
+		tapAs(c, du, in.Action, in.Lat, in.Lng, in.Accuracy, photo)
 		return
 	}
 	if strings.TrimSpace(in.Identifier) == "" || in.Password == "" {
@@ -106,11 +132,11 @@ func PublicAttendance(c *gin.Context) {
 		return
 	}
 	limiter.reset(acctKey) // correct credentials clear the failure counter
-	tapAs(c, u, in.Action, in.Lat, in.Lng, in.Accuracy)
+	tapAs(c, u, in.Action, in.Lat, in.Lng, in.Accuracy, photo)
 }
 
 // tapAs runs the tap for an already-authenticated user and writes the HTTP response.
-func tapAs(c *gin.Context, u models.User, action string, lat, lng, acc *float64) {
+func tapAs(c *gin.Context, u models.User, action string, lat, lng, acc *float64, photo *multipart.FileHeader) {
 	if u.EmployeeID == nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Akun ini tidak terhubung ke data karyawan, tidak dapat absen."})
 		return
@@ -121,7 +147,12 @@ func tapAs(c *gin.Context, u models.User, action string, lat, lng, acc *float64)
 		c.JSON(http.StatusForbidden, gin.H{"error": "Karyawan tidak aktif, tidak dapat absen."})
 		return
 	}
-	res, terr := performTap(tapRequest{Emp: emp, Action: action, Lat: lat, Lng: lng, Acc: acc, IP: c.ClientIP(), Now: time.Now()})
+	img, terr := decodePhoto(photo) // only after the credentials / status checks: unauthenticated callers never make us decode images
+	if terr != nil {
+		c.JSON(terr.Status, gin.H{"error": terr.Msg, "name": emp.Name})
+		return
+	}
+	res, terr := performTap(tapRequest{Emp: emp, Action: action, Lat: lat, Lng: lng, Acc: acc, IP: c.ClientIP(), Now: time.Now(), Photo: img})
 	if terr != nil {
 		c.JSON(terr.Status, gin.H{"error": terr.Msg, "name": emp.Name})
 		return

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"image"
 	"math"
 	"net/http"
 	"sort"
@@ -65,6 +66,7 @@ type tapRequest struct {
 	Acc      *float64
 	IP       string
 	Now      time.Time
+	Photo    image.Image // decoded camera photo; stamped and stored together with the record
 }
 
 type tapError struct {
@@ -147,8 +149,8 @@ func performTap(r tapRequest) (gin.H, *tapError) {
 		if existing.ID != 0 { // a manual row without tap-in
 			rec.ID, rec.CheckOutAt, rec.WorkMinutes, rec.EarlyLeaveMinutes = existing.ID, existing.CheckOutAt, existing.WorkMinutes, existing.EarlyLeaveMinutes
 		}
-		if err := database.DB.Save(&rec).Error; err != nil {
-			return nil, fail(http.StatusInternalServerError, "Gagal menyimpan absensi")
+		if terr := saveTapRecord(&rec, "in", r, loc); terr != nil {
+			return nil, terr
 		}
 		status, msg := "Hadir", "Tap in berhasil"
 		if s.Status != "kerja" {
@@ -181,12 +183,45 @@ func performTap(r tapRequest) (gin.H, *tapError) {
 	if loc != nil {
 		rec.OutLocationID = &loc.ID
 	}
-	database.DB.Save(&rec)
+	if terr := saveTapRecord(&rec, "out", r, loc); terr != nil {
+		return nil, terr
+	}
 	msg := fmt.Sprintf("Tap out berhasil — total %d jam %d menit", work/60, work%60)
 	if early > 0 {
 		msg += fmt.Sprintf(" (pulang %d menit lebih awal)", early)
 	}
 	return gin.H{"action": "out", "time": now, "status": "Pulang", "early_leave_minutes": early, "work_minutes": work, "location": locName(loc), "distance": dist, "message": msg}, nil
+}
+
+// saveTapRecord stores the attendance row and, when the tap carries a photo, the stamped photo — all or nothing.
+func saveTapRecord(rec *models.AttendanceRecord, kind string, r tapRequest, loc *models.Location) *tapError {
+	var shot []byte
+	if r.Photo != nil {
+		var err error
+		shot, err = stampPhoto(r.Photo, stampInfo{Name: r.Emp.Name, NIK: r.Emp.NIK, Action: kind, At: r.Now, Lat: r.Lat, Lng: r.Lng, Acc: r.Acc, Place: locName(loc)})
+		if err != nil {
+			return fail(http.StatusInternalServerError, "Gagal memproses foto absensi")
+		}
+	}
+	var stored string
+	err := database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(rec).Error; err != nil {
+			return err
+		}
+		if shot == nil {
+			return nil
+		}
+		var err error
+		stored, err = savePhoto(tx, rec.ID, kind, shot, r.Now)
+		return err
+	})
+	if err != nil {
+		if stored != "" {
+			Store.Remove(stored)
+		}
+		return fail(http.StatusInternalServerError, "Gagal menyimpan absensi")
+	}
+	return nil
 }
 
 func locName(l *models.Location) string {
@@ -224,6 +259,9 @@ type attRow struct {
 	OutDistance  *int       `json:"out_distance"`
 	Source       string     `json:"source"`
 	Note         string     `json:"note"`
+	RecordID     uint       `json:"record_id"`
+	HasInPhoto   bool       `json:"has_in_photo"`
+	HasOutPhoto  bool       `json:"has_out_photo"`
 }
 
 func attendanceEmployees(c *gin.Context) []models.Employee {
@@ -352,6 +390,11 @@ func AttendanceDaily(c *gin.Context) {
 	leaves := leaveMap(d, d, empIDsOf(emps))
 	locs := locNames()
 	now := time.Now()
+	recIDs := make([]uint, 0, len(recs))
+	for _, rc := range recs {
+		recIDs = append(recIDs, rc.ID)
+	}
+	photos := photoFlags(recIDs)
 	rows := make([]attRow, 0, len(emps))
 	sum := map[string]int{}
 	for _, e := range emps {
@@ -376,6 +419,7 @@ func AttendanceDaily(c *gin.Context) {
 		if rec != nil {
 			r.CheckIn, r.CheckOut, r.Late, r.Early, r.Work, r.WorkedOff = rec.CheckInAt, rec.CheckOutAt, rec.LateMinutes, rec.EarlyLeaveMinutes, rec.WorkMinutes, rec.WorkedOnOffDay
 			r.InDistance, r.OutDistance, r.Source, r.Note = rec.InDistance, rec.OutDistance, rec.Source, rec.Note
+			r.RecordID, r.HasInPhoto, r.HasOutPhoto = rec.ID, photos[rec.ID]["in"], photos[rec.ID]["out"]
 			if rec.InLocationID != nil {
 				r.InLocation = locs[*rec.InLocationID]
 			}

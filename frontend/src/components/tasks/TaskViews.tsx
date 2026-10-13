@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Flame } from 'lucide-react'
 import Badge from '../ui/Badge'
-import Pagination from '../ui/Pagination'
+import Pagination, { rowsPerPage } from '../ui/Pagination'
 import ProgressBar from '../ui/ProgressBar'
 import { setTaskStatus } from '../../services/api'
 import type { TaskRow, TaskStatus } from '../../types'
@@ -18,9 +18,10 @@ export function TaskList({ tasks, onOpen, groupBy }: ViewProps & { groupBy: Grou
   const [pageSize, setPageSize] = useState(10)
   const sorted = useMemo(() => (groupBy === 'none' ? tasks : [...tasks].sort((a, b) => groupKey(a, groupBy).localeCompare(groupKey(b, groupBy)))), [tasks, groupBy])
   useEffect(() => setPage(1), [tasks, groupBy, pageSize])
-  const last = Math.max(1, Math.ceil(sorted.length / pageSize))
+  const per = rowsPerPage(pageSize, sorted.length)
+  const last = Math.max(1, Math.ceil(sorted.length / per))
   const cur = Math.min(page, last)
-  const rows = sorted.slice((cur - 1) * pageSize, cur * pageSize)
+  const rows = sorted.slice((cur - 1) * per, cur * per)
   const counts = useMemo(() => { const m = new Map<string, number>(); sorted.forEach((t) => m.set(groupKey(t, groupBy), (m.get(groupKey(t, groupBy)) ?? 0) + 1)); return m }, [sorted, groupBy])
   return (
     <div>

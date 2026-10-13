@@ -199,11 +199,12 @@ function Users() {
 
   return (
     <>
-      <DataTable data={users} rowKey={(u) => u.id} searchPlaceholder="Cari nama, email, role…"
-        searchText={(u) => `${u.name} ${u.email} ${u.role} ${u.employee_name}`}
+      <DataTable data={users} rowKey={(u) => u.id} searchPlaceholder="Cari nama, NIK, email, role…"
+        searchText={(u) => `${u.name} ${u.email} ${u.role} ${u.employee_name} ${u.employee_nik ?? ''}`}
         actions={<button className="btn-primary" onClick={openNew}><Plus className="w-3.5 h-3.5 inline mr-1" />User</button>}
         columns={[
           { head: 'Nama', render: (u) => <b>{u.name}</b> },
+          { head: 'NIK', render: (u) => u.employee_nik || '-' },
           { head: 'Email', render: (u) => u.email },
           { head: 'Role', render: (u) => <Badge tone={roleTone[u.role]}>{ROLES.find((r) => r.id === u.role)?.label}</Badge> },
           { head: 'Karyawan', render: (u) => u.employee_name || '-' },
@@ -218,7 +219,7 @@ function Users() {
             {!edit.id && (
               <label className="block font-semibold">Hubungkan ke karyawan <span className="font-normal text-muted">(opsional; wajib agar bisa mengajukan cuti)</span>
                 <select className="input w-full mt-1" value={edit.employee_id || ''} onChange={(e) => pickEmployee(Number(e.target.value))}>
-                  <option value="">— Tidak (akun admin saja) —</option>{withoutAccount.map((e) => <option key={e.id} value={e.id}>{e.name}{e.position ? ` — ${e.position.title}` : ''}</option>)}
+                  <option value="">— Tidak (akun admin saja) —</option>{withoutAccount.map((e) => <option key={e.id} value={e.id}>{e.nik ? `${e.nik} · ` : ''}{e.name}{e.position ? ` — ${e.position.title}` : ''}</option>)}
                 </select></label>
             )}
             <label className="block font-semibold">Nama<input className="input w-full mt-1" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></label>

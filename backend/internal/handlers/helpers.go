@@ -56,3 +56,6 @@ func audit(c *gin.Context, action, entity string, id uint) {
 }
 
 func paramID(c *gin.Context) uint { n, _ := strconv.Atoi(c.Param("id")); return uint(n) }
+
+// maxAllRows caps a list requested with page_size=0 ("tampilkan semua") so one request cannot pull an unbounded table.
+const maxAllRows = 5000

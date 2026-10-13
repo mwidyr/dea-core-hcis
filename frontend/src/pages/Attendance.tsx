@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Copy, ExternalLink, Plus } from 'lucide-react'
+import { Camera, Copy, ExternalLink, Plus } from 'lucide-react'
 import Layout from '../components/Layout/Layout'
+import AttendancePhotoViewer from '../components/AttendancePhotoViewer'
 import Badge from '../components/ui/Badge'
 import DataTable from '../components/ui/DataTable'
 import DateField from '../components/ui/DateField'
@@ -19,6 +20,7 @@ const fmtDate = (d: string) => new Date(d).toLocaleDateString('id-ID', { day: '2
 const tone: Record<AttStatus, 'green' | 'amber' | 'red' | 'blue' | 'purple' | 'gray'> = { Hadir: 'green', Terlambat: 'amber', 'Belum Absen': 'gray', 'Tidak Hadir': 'red', Cuti: 'blue', Izin: 'purple', Sakit: 'purple', OFF: 'gray', Libur: 'gray', Terjadwal: 'gray' }
 const manualTone = { 'Pending Approval': 'amber', Disetujui: 'green', Ditolak: 'red', Dibatalkan: 'gray' } as const
 const err = (e: any, f: string) => e.response?.data?.error || f
+const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, 'id', { sensitivity: 'base' }) // default order: nama A–Z
 
 export default function Attendance() {
   const { businessId } = useBusinessStore()
@@ -30,6 +32,7 @@ export default function Attendance() {
   const [shifts, setShifts] = useState<ShiftRow[]>([])
   const [manual, setManual] = useState<ManualRow[]>([])
   const [fStatus, setFStatus] = useState('')
+  const [photoRow, setPhotoRow] = useState<AttRow | null>(null)
   const [form, setForm] = useState(false)
   const [copied, setCopied] = useState(false)
   const link = `${window.location.origin}/absen`
@@ -79,19 +82,20 @@ export default function Attendance() {
               </div>
             </div>
           </div>
-          <DataTable data={fStatus ? daily.rows.filter((r) => r.status === fStatus) : daily.rows} rowKey={(r) => r.employee_id} searchPlaceholder="Cari nama, NIK, lokasi…"
+          <DataTable data={fStatus ? daily.rows.filter((r) => r.status === fStatus) : daily.rows} rowKey={(r) => r.employee_id} defaultSort={byName} searchPlaceholder="Cari nama, NIK, lokasi…"
             searchText={(r) => `${r.name} ${r.nik} ${r.location_name} ${r.business_name} ${r.status}`}
             filters={<>
               <div className="w-40"><DateField value={date} onChange={setDate} businessId={businessId} /></div>
               <select className="input" value={fStatus} onChange={(e) => setFStatus(e.target.value)}><option value="">Semua Status</option>{Object.keys(tone).map((k) => <option key={k}>{k}</option>)}</select>
             </>}
             columns={[
-              { head: 'Karyawan', render: (r) => <div><b>{r.name}</b><div className="text-muted text-[11px]">{r.nik} · {r.business_name}</div></div> },
+              { head: 'Karyawan', sortValue: (r) => r.name, render: (r) => <div><b>{r.name}</b><div className="text-muted text-[11px]">{r.nik} · {r.business_name}</div></div> },
               { head: 'Lokasi', render: (r) => r.location_name || '-' },
               { head: 'Kebijakan', render: (r) => <span className="text-muted">{r.policy}</span> },
               { head: 'Jadwal', render: (r) => <div>{r.schedule}{r.worked_on_off_day && <div><Badge tone="purple">Kerja Hari Libur</Badge></div>}{r.holiday && r.sched_status === 'libur' && <div className="text-[10.5px] text-muted">{r.holiday}</div>}</div> },
-              { head: 'Check-in', render: (r) => hm(r.check_in) },
-              { head: 'Check-out', render: (r) => hm(r.check_out) },
+              { head: 'Check-in', sortValue: (r) => (r.check_in ? new Date(r.check_in).getTime() : null), render: (r) => hm(r.check_in) },
+              { head: 'Check-out', sortValue: (r) => (r.check_out ? new Date(r.check_out).getTime() : null), render: (r) => hm(r.check_out) },
+              { head: 'Foto', render: (r) => (r.has_in_photo || r.has_out_photo) ? <button className="btn" onClick={() => setPhotoRow(r)}><Camera className="w-3.5 h-3.5 inline mr-1" />Lihat foto</button> : <span className="text-muted">–</span> },
               { head: 'Jam Kerja', render: (r) => dur(r.work_minutes) },
               { head: 'Status', render: (r) => <Badge tone={tone[r.status]}>{r.status}</Badge> },
               { head: 'Keterangan', render: (r) => <span className="text-muted text-[11px]">{[r.late_minutes > 0 && `terlambat ${r.late_minutes} mnt`, r.early_leave_minutes > 0 && r.check_out && `pulang awal ${r.early_leave_minutes} mnt`, r.in_distance !== null && r.in_distance !== undefined && `${r.in_distance} m dari titik`, r.source === 'manual' && 'manual', r.leave_type && r.status !== 'Hadir' && r.status !== 'Terlambat' && r.leave_type].filter(Boolean).join(' · ') || '-'}</span> },
@@ -146,6 +150,7 @@ export default function Attendance() {
       </div>
 
       {form && <ManualForm businessId={businessId} onClose={() => setForm(false)} onSaved={() => { setForm(false); load() }} />}
+      {photoRow && <AttendancePhotoViewer recordId={photoRow.record_id} name={photoRow.name} hasIn={photoRow.has_in_photo} hasOut={photoRow.has_out_photo} onClose={() => setPhotoRow(null)} />}
     </Layout>
   )
 }

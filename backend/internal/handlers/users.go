@@ -18,22 +18,23 @@ var validRole = map[string]bool{"super_admin": true, "hr_admin": true, "manager"
 type userRow struct {
 	models.User
 	EmployeeName string `json:"employee_name"`
+	EmployeeNIK  string `json:"employee_nik"`
 }
 
 func ListUsers(c *gin.Context) {
 	var us []models.User
 	database.DB.Preload("Businesses").Order("name").Find(&us)
-	names := map[uint]string{}
+	names, niks := map[uint]string{}, map[uint]string{}
 	var emps []models.Employee
-	database.DB.Select("id, name").Find(&emps)
+	database.DB.Select("id, name, nik").Find(&emps)
 	for _, e := range emps {
-		names[e.ID] = e.Name
+		names[e.ID], niks[e.ID] = e.Name, e.NIK
 	}
 	out := make([]userRow, 0, len(us))
 	for _, u := range us {
 		v := userRow{User: u}
 		if u.EmployeeID != nil {
-			v.EmployeeName = names[*u.EmployeeID]
+			v.EmployeeName, v.EmployeeNIK = names[*u.EmployeeID], niks[*u.EmployeeID]
 		}
 		out = append(out, v)
 	}
@@ -160,7 +161,10 @@ func ListAudit(c *gin.Context) {
 	if page < 1 {
 		page = 1
 	}
-	if size < 1 || size > 200 {
+	switch {
+	case size == 0: // "tampilkan semua"
+		size, page = maxAllRows, 1
+	case size < 1 || size > 200:
 		size = 20
 	}
 	q := database.DB.Table("audit_logs a").Joins("LEFT JOIN users u ON u.id = a.user_id")

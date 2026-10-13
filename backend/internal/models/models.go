@@ -57,13 +57,14 @@ type Employee struct {
 	LocationID     *uint      `json:"location_id"`
 	WorkCalendarID *uint      `json:"work_calendar_id"`        // nil = business default calendar
 	ManagerID      *uint      `gorm:"index" json:"manager_id"` // n+1, derived from position tree
-	EmployeeType   string     `json:"employee_type"`           // Tetap | Kontrak
+	EmployeeType   string     `json:"employee_type"`           // Tetap | Kontrak | Freelance
 	ContractStart  *time.Time `json:"contract_start"`
 	ContractEnd    *time.Time `json:"contract_end"`
 	JoinDate       *time.Time `json:"join_date"`
+	PlaceOfHire    string     `json:"place_of_hire"` // POH: where the employee was hired
 	BirthPlace     string     `json:"birth_place"`
 	BirthDate      *time.Time `json:"birth_date"`
-	// Status: Aktif | Suspend | Tidak Bekerja. IsActive mirrors Status == "Aktif".
+	// Status: Aktif | Non aktif | Suspend | Tidak Bekerja (manual). IsActive mirrors Status == "Aktif".
 	Status     string              `gorm:"default:Aktif" json:"status"`
 	StatusNote string              `json:"status_note"`
 	IsActive   bool                `gorm:"default:true" json:"is_active"`
@@ -72,6 +73,36 @@ type Employee struct {
 	Location   *Location           `gorm:"foreignKey:LocationID" json:"location,omitempty"`
 	Business   *Business           `gorm:"foreignKey:BusinessID" json:"business,omitempty"`
 	Placements []EmployeePlacement `json:"placements,omitempty"`
+	// Contracts holds every contract period (newest first). ContractStart/ContractEnd above mirror the current one — see syncCurrentContract.
+	Contracts     []EmployeeContract `gorm:"foreignKey:EmployeeID" json:"contracts,omitempty"`
+	ContractCount int                `gorm:"-" json:"contract_count"`
+	DOH           *time.Time         `gorm:"-" json:"doh"` // Date of Hire: first day of work (JoinDate, else the earliest contract start)
+}
+
+// EmployeeContract is one contract (or freelance engagement) period. An employee can have many.
+type EmployeeContract struct {
+	ID         uint       `gorm:"primaryKey" json:"id"`
+	EmployeeID uint       `gorm:"index" json:"employee_id"`
+	Number     string     `json:"number"` // contract number / reference, free text
+	StartDate  time.Time  `json:"start_date"`
+	EndDate    *time.Time `json:"end_date"`
+	Note       string     `json:"note"`
+	CreatedAt  time.Time  `json:"created_at"`
+	DocCount   int        `gorm:"-" json:"doc_count"`
+}
+
+// EmployeeCompetency is one entry of an employee's competency history (education, certificate, training, work experience, skill).
+type EmployeeCompetency struct {
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	EmployeeID  uint      `gorm:"index" json:"employee_id"`
+	Kind        string    `json:"kind"`
+	Name        string    `json:"name"`
+	Institution string    `json:"institution"`
+	StartYear   int       `json:"start_year"`
+	EndYear     int       `json:"end_year"`
+	CertNo      string    `json:"cert_no"`
+	Note        string    `json:"note"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // EmployeeDocument is an uploaded photo/scan (KTP, KK, other…). Label is free text so
@@ -80,6 +111,7 @@ type EmployeeDocument struct {
 	ID          uint   `gorm:"primaryKey" json:"id"`
 	EmployeeID  uint   `gorm:"index" json:"employee_id"`
 	Label       string `json:"label"`
+	ContractID  *uint  `gorm:"index" json:"contract_id"` // set when the file belongs to one specific contract
 	FileName    string `json:"file_name"`
 	MimeType    string `json:"mime_type"`
 	Size        int64  `json:"size"`
@@ -308,6 +340,16 @@ type AttendanceRecord struct {
 	Source            string     `json:"source"`            // kiosk | manual
 	Note              string     `json:"note"`
 	IP                string     `json:"ip"`
+}
+
+// AttendancePhoto is the stamped camera photo taken at tap in / tap out (at most one per record and kind).
+type AttendancePhoto struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	RecordID  uint      `gorm:"uniqueIndex:idx_att_photo" json:"record_id"`
+	Kind      string    `gorm:"uniqueIndex:idx_att_photo;size:3" json:"kind"` // in | out
+	LocalPath string    `json:"-"`
+	Size      int64     `json:"size"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // ManualAttendance: request to correct/add a missed tap, approved through the approval engine.

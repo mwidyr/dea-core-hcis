@@ -13,12 +13,15 @@ export interface Placement { id: number; is_primary: boolean; position?: Positio
 export interface Employee {
   id: number; business_id: number; name: string; email: string; nik?: string; work_calendar_id?: number | null
   position_id: number | null; unit_id: number | null; manager_id: number | null
-  phone?: string; birth_place?: string; birth_date?: string | null
+  phone?: string; birth_place?: string; birth_date?: string | null; place_of_hire?: string
   employee_type: string; contract_start?: string | null; contract_end: string | null; join_date: string | null
-  status: 'Aktif' | 'Suspend' | 'Tidak Bekerja'; status_note?: string; is_active: boolean; location_id?: number | null
+  status: 'Aktif' | 'Non aktif' | 'Suspend' | 'Tidak Bekerja'; status_note?: string; is_active: boolean; location_id?: number | null
   position?: Position; unit?: OrgUnit; location?: Location; business?: Business; placements?: Placement[]
+  contracts?: EmployeeContract[]; contract_count?: number; doh?: string | null
 }
-export interface EmployeeDocument { id: number; employee_id: number; label: string; file_name: string; mime_type: string; size: number; drive_status: string; created_at: string }
+export interface EmployeeContract { id: number; employee_id: number; number: string; start_date: string; end_date: string | null; note: string; doc_count?: number }
+export interface EmployeeCompetency { id: number; employee_id: number; kind: string; name: string; institution: string; start_year: number; end_year: number; cert_no: string; note: string }
+export interface EmployeeDocument { id: number; employee_id: number; contract_id?: number | null; label: string; file_name: string; mime_type: string; size: number; drive_status: string; created_at: string }
 
 export interface LeaveType { id: number; name: string; category: 'cuti' | 'izin' | 'sakit'; default_days: number; deducts_balance: boolean; requires_attachment: boolean; is_active: boolean }
 export interface LeaveRow {
@@ -37,7 +40,7 @@ export interface ApprovalRequest {
   decision_note: string; current_level: number; steps: ApprovalStep[]
 }
 export interface Person { user_id: number; name: string; role?: string }
-export interface AppUser { id: number; email: string; name: string; role: User['role']; employee_id: number | null; employee_name: string; is_active: boolean; businesses: Business[] }
+export interface AppUser { id: number; email: string; name: string; role: User['role']; employee_id: number | null; employee_name: string; employee_nik?: string; is_active: boolean; businesses: Business[] }
 export interface AuditRow { id: number; user_name: string; action: string; entity: string; entity_id: string; created_at: string }
 export interface Holiday { id: number; date: string; name: string; business_id: number | null; deducts_leave: boolean }
 export interface FileItem { id: number; label: string; file_name: string; mime_type: string; size: number; drive_status?: string; drive_error?: string }
@@ -50,6 +53,7 @@ export interface AttRow {
   employee_id: number; name: string; nik: string; unit_name: string; business_name: string; location_name: string; pattern: string; policy: string
   sched_status: string; schedule: string; holiday: string; status: AttStatus; leave_type: string; check_in: string | null; check_out: string | null
   late_minutes: number; early_leave_minutes: number; work_minutes: number; worked_on_off_day: boolean; in_location: string; in_distance: number | null; out_distance: number | null; source: string; note: string
+  record_id: number; has_in_photo: boolean; has_out_photo: boolean
 }
 export interface AttSummary { kerja?: number; hadir?: number; izin?: number; sakit?: number; belum?: number; terlambat?: number; kerja_hari_libur?: number; nonkerja?: number; cuti?: number; off?: number; libur?: number }
 export interface RecapRow { employee_id: number; name: string; nik: string; unit_name: string; business_name: string; location_name: string; work_days: number; present: number; late: number; absent: number; cuti: number; izin: number; sakit: number; worked_off: number; off: number; holiday: number; work_minutes: number; rate: number }

@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { DriveStatusData, DashboardData, PermDef, ReportData, KpiClose, KpiHistoryRow, RecurringTask, DeptKpi, EmpScore, KpiItem, KpiSettings, ScoreTaskRow, Assignee, CurvePoint, Project, TaskDetailData, TaskRow, TaskSummary, DevAccount, AppNotification, RosterWindow, RosterAdjustment, AttRow, AttSummary, ManualRow, RecapRow, Roster, ShiftRow, WorkCalendar, Holiday, LeaveCalc, AppUser, ApprovalRequest, AuditRow, Business, Employee, EmployeeDocument, LeaveBalanceRow, LeaveRow, LeaveSummary, LeaveType, Person, Location, OrgUnit, Position, User } from '../types'
+import type { DriveStatusData, DashboardData, PermDef, ReportData, KpiClose, KpiHistoryRow, RecurringTask, DeptKpi, EmpScore, KpiItem, KpiSettings, ScoreTaskRow, Assignee, CurvePoint, Project, TaskDetailData, TaskRow, TaskSummary, DevAccount, AppNotification, RosterWindow, RosterAdjustment, AttRow, AttSummary, ManualRow, RecapRow, Roster, ShiftRow, WorkCalendar, Holiday, LeaveCalc, AppUser, ApprovalRequest, AuditRow, Business, Employee, EmployeeContract, EmployeeCompetency, EmployeeDocument, LeaveBalanceRow, LeaveRow, LeaveSummary, LeaveType, Person, Location, OrgUnit, Position, User } from '../types'
 
 // VITE_API_URL points at a backend on another domain; default is the Vite-proxied /api.
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api' })
@@ -54,16 +54,27 @@ export const saveEmployee = (d: Partial<Employee>) => (d.id ? api.put(`/employee
 export const deleteEmployee = (id: number) => api.delete(`/employees/${id}`)
 export const setEmployeeStatus = (id: number, status: string, note: string) => api.patch(`/employees/${id}/status`, { status, note })
 export const getEmployeeDocuments = (id: number) => api.get<EmployeeDocument[]>(`/employees/${id}/documents`)
-export const uploadEmployeeDocument = (id: number, label: string, file: File) => {
+export const uploadEmployeeDocument = (id: number, label: string, file: File, contractId?: number | null) => {
   const f = new FormData()
   f.append('label', label)
   f.append('file', file)
+  if (contractId) f.append('contract_id', String(contractId))
   return api.post<EmployeeDocument>(`/employees/${id}/documents`, f)
 }
 export const deleteEmployeeDocument = (id: number, docId: number) => api.delete(`/employees/${id}/documents/${docId}`)
 // files need the auth header, so they are fetched as blobs (an <img src> can't send it)
 export const fetchEmployeeDocumentBlob = (id: number, docId: number) =>
   api.get<Blob>(`/employees/${id}/documents/${docId}/file`, { responseType: 'blob' })
+// contract history + competency history
+export const getEmployeeContracts = (id: number) => api.get<EmployeeContract[]>(`/employees/${id}/contracts`)
+export const saveEmployeeContract = (id: number, d: { id?: number; number: string; start_date: string | null; end_date: string | null; note: string }) =>
+  d.id ? api.put<EmployeeContract>(`/employees/${id}/contracts/${d.id}`, d) : api.post<EmployeeContract>(`/employees/${id}/contracts`, d)
+export const deleteEmployeeContract = (id: number, cid: number) => api.delete(`/employees/${id}/contracts/${cid}`)
+export const getContractDocCounts = () => api.get<Record<string, number>>('/employees/contract-doc-counts')
+export const getEmployeeCompetencies = (id: number) => api.get<EmployeeCompetency[]>(`/employees/${id}/competencies`)
+export const saveEmployeeCompetency = (id: number, d: Partial<EmployeeCompetency>) =>
+  d.id ? api.put<EmployeeCompetency>(`/employees/${id}/competencies/${d.id}`, d) : api.post<EmployeeCompetency>(`/employees/${id}/competencies`, d)
+export const deleteEmployeeCompetency = (id: number, cid: number) => api.delete(`/employees/${id}/competencies/${cid}`)
 export const getExpiringContracts = (days = 30) => api.get<Employee[]>('/employees/contract-expiring', { params: { days } })
 
 // Leave
@@ -143,7 +154,15 @@ export const cancelManualAttendance = (id: number) => api.post(`/attendance/manu
 
 export interface TapResult { action: 'in' | 'out'; time: string; status: string; message: string; name: string; nik: string; position?: string; location?: string; distance?: number; late_minutes?: number; work_minutes?: number; schedule?: string }
 export const publicClock = () => api.get<{ ms: number }>('/public/clock')
-export const publicTap = (d: { identifier?: string; password?: string; dev_user_id?: number; action: 'in' | 'out'; lat?: number; lng?: number; accuracy?: number }) => api.post<TapResult>('/public/attendance', d)
+// multipart: the camera photo is mandatory; the server stamps time / place / name onto it
+export const publicTap = (d: { identifier?: string; password?: string; dev_user_id?: number; action: 'in' | 'out'; lat?: number; lng?: number; accuracy?: number }, photo: Blob) => {
+  const f = new FormData()
+  Object.entries(d).forEach(([k, v]) => { if (v !== undefined && v !== null) f.append(k, String(v)) })
+  f.append('photo', photo, 'absen.jpg')
+  return api.post<TapResult>('/public/attendance', f)
+}
+export const fetchAttendancePhotoBlob = (recordId: number, kind: 'in' | 'out') =>
+  api.get<Blob>(`/attendance/records/${recordId}/photo`, { params: { kind }, responseType: 'blob' })
 
 // Tasks
 export const getTasks = (params?: object) => api.get<{ data: TaskRow[]; summary: TaskSummary }>('/tasks', { params })

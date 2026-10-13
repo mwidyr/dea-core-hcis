@@ -13,7 +13,11 @@ import (
 	"gorm.io/gorm"
 )
 
-var validStatus = map[string]bool{"Aktif": true, "Suspend": true, "Tidak Bekerja": true}
+// Status is set manually by HR (never derived from contract dates). Only Aktif / Non aktif keep a login; only Aktif counts as active staff.
+var validStatus = map[string]bool{"Aktif": true, "Non aktif": true, "Suspend": true, "Tidak Bekerja": true}
+
+// statusKeepsLogin: Non aktif employees can still sign in, Suspend / Tidak Bekerja cannot.
+func statusKeepsLogin(status string) bool { return status == "Aktif" || status == "Non aktif" }
 
 // employeeBizScope: like scopeBusiness, but an employee also belongs to every business they have an
 // additional placement in (multi-business), not only their primary one.
@@ -70,15 +74,42 @@ func ListEmployees(c *gin.Context) {
 	if page < 1 {
 		page = 1
 	}
-	if size < 1 || size > 1000 {
+	switch {
+	case size == 0: // "tampilkan semua"
+		size, page = maxAllRows, 1
+	case size < 1 || size > 1000:
 		size = 50
 	}
 	var l []models.Employee
 	q.Preload("Position").Preload("Unit").Preload("Location").Preload("Business").
 		Preload("Placements.Position").Preload("Placements.Business").
-		Order("employees.name").Limit(size).Offset((page - 1) * size).Find(&l)
+		Preload("Contracts", func(db *gorm.DB) *gorm.DB { return db.Order("start_date DESC, id DESC") }).
+		Order(employeeOrder(c.Query("sort"), c.Query("dir"))).Limit(size).Offset((page - 1) * size).Find(&l)
 	c.JSON(http.StatusOK, gin.H{"data": l, "total": total, "page": page, "page_size": size,
 		"stats": gin.H{"active": active, "tetap": tetap, "kontrak": kontrak, "freelance": freelance, "multi": multi, "expiring": expiring}})
+}
+
+// employeeOrder maps the whitelisted ?sort= / ?dir= to an ORDER BY. Default: name A–Z.
+// tenure ascending = shortest tenure first (latest join date first); empty dates always come last.
+func employeeOrder(sort, dir string) string {
+	asc := dir != "desc"
+	switch sort {
+	case "tenure":
+		if asc {
+			return "employees.join_date DESC NULLS LAST, employees.name"
+		}
+		return "employees.join_date ASC NULLS LAST, employees.name"
+	case "contract_end":
+		if asc {
+			return "employees.contract_end ASC NULLS LAST, employees.name"
+		}
+		return "employees.contract_end DESC NULLS LAST, employees.name"
+	case "name":
+		if !asc {
+			return "employees.name DESC"
+		}
+	}
+	return "employees.name ASC"
 }
 
 func GetEmployee(c *gin.Context) {
@@ -89,6 +120,7 @@ func GetEmployee(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "karyawan tidak ditemukan"})
 		return
 	}
+	fillDOH(&e)
 	c.JSON(http.StatusOK, e)
 }
 
@@ -104,7 +136,7 @@ func SaveEmployee(c *gin.Context) {
 	}
 	in.ID = paramID(c)
 	in.Name = strings.TrimSpace(in.Name)
-	in.Position, in.Unit, in.Location, in.Business, in.Placements = nil, nil, nil, nil, nil
+	in.Position, in.Unit, in.Location, in.Business, in.Placements, in.Contracts = nil, nil, nil, nil, nil, nil
 
 	oldNIK := ""
 	if in.ID != 0 { // status / active flag are changed only through the status endpoint
@@ -114,7 +146,8 @@ func SaveEmployee(c *gin.Context) {
 			return
 		}
 		in.Status, in.StatusNote, in.IsActive = old.Status, old.StatusNote, old.IsActive
-		in.BusinessID = old.BusinessID // business is locked once created
+		in.ContractStart, in.ContractEnd = old.ContractStart, old.ContractEnd // contract periods are managed under /contracts
+		in.BusinessID = old.BusinessID                                        // business is locked once created
 		oldNIK = old.NIK
 	} else {
 		in.Status, in.IsActive = "Aktif", true
@@ -152,7 +185,12 @@ func SaveEmployee(c *gin.Context) {
 			return
 		}
 	}
-	if in.EmployeeType != "Kontrak" && in.EmployeeType != "Freelance" { // freelance may carry an optional engagement period
+	// A new Kontrak / Freelance employee may arrive with a first contract period; later ones are added under /contracts.
+	var firstContract *models.EmployeeContract
+	if in.ID == 0 && (in.EmployeeType == "Kontrak" || in.EmployeeType == "Freelance") && in.ContractStart != nil {
+		firstContract = &models.EmployeeContract{StartDate: *in.ContractStart, EndDate: in.ContractEnd}
+	}
+	if in.ID == 0 {
 		in.ContractStart, in.ContractEnd = nil, nil
 	}
 	// n+1: default manager = holder of the position this position reports to
@@ -175,6 +213,15 @@ func SaveEmployee(c *gin.Context) {
 		if err := tx.Save(&in).Error; err != nil {
 			return err
 		}
+		if firstContract != nil {
+			firstContract.EmployeeID = in.ID
+			if err := tx.Create(firstContract).Error; err != nil {
+				return err
+			}
+		}
+		if err := syncCurrentContract(tx, in.ID); err != nil { // type may have changed (e.g. Kontrak → Tetap)
+			return err
+		}
 		if isNew && in.PositionID != nil { // primary placement row
 			return tx.Create(&models.EmployeePlacement{EmployeeID: in.ID, BusinessID: in.BusinessID, PositionID: *in.PositionID, IsPrimary: true}).Error
 		}
@@ -191,14 +238,14 @@ func SaveEmployee(c *gin.Context) {
 	c.JSON(http.StatusOK, in)
 }
 
-// SetEmployeeStatus: Aktif | Suspend | Tidak Bekerja. Non-active employees can't log in.
+// SetEmployeeStatus: Aktif | Non aktif | Suspend | Tidak Bekerja. Suspend / Tidak Bekerja employees can't log in; Non aktif can.
 func SetEmployeeStatus(c *gin.Context) {
 	var in struct {
 		Status string `json:"status"`
 		Note   string `json:"note"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil || !validStatus[in.Status] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "status harus Aktif, Suspend, atau Tidak Bekerja"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "status harus Aktif, Non aktif, Suspend, atau Tidak Bekerja"})
 		return
 	}
 	id := paramID(c)
@@ -208,7 +255,7 @@ func SetEmployeeStatus(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "karyawan tidak ditemukan"})
 		return
 	}
-	database.DB.Model(&models.User{}).Where("employee_id = ?", id).Update("is_active", in.Status == "Aktif")
+	database.DB.Model(&models.User{}).Where("employee_id = ?", id).Update("is_active", statusKeepsLogin(in.Status))
 	audit(c, "status:"+in.Status, "employee", id)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
@@ -225,6 +272,8 @@ func DeleteEmployee(c *gin.Context) {
 	}
 	var docs []models.EmployeeDocument
 	database.DB.Where("employee_id = ?", id).Find(&docs)
+	var photoFiles []models.AttendancePhoto
+	database.DB.Where("record_id IN (SELECT id FROM attendance_records WHERE employee_id = ?)", id).Find(&photoFiles)
 	var leaveFiles []models.LeaveAttachment
 	database.DB.Where("leave_request_id IN (SELECT id FROM leave_requests WHERE employee_id = ?)", id).Find(&leaveFiles)
 	err := database.DB.Transaction(func(tx *gorm.DB) error {
@@ -236,6 +285,7 @@ func DeleteEmployee(c *gin.Context) {
 		tx.Where("employee_id = ?", id).Delete(&models.LeaveRequest{})
 		tx.Where("employee_id = ?", id).Delete(&models.LeaveBalance{})
 		tx.Where("employee_id = ?", id).Delete(&models.LeaveGrant{})
+		tx.Exec("DELETE FROM attendance_photos WHERE record_id IN (SELECT id FROM attendance_records WHERE employee_id = ?)", id)
 		tx.Where("employee_id = ?", id).Delete(&models.AttendanceRecord{})
 		tx.Where("employee_id = ?", id).Delete(&models.RosterAssignment{})
 		tx.Where("employee_id = ?", id).Delete(&models.TaskMember{})
@@ -247,6 +297,8 @@ func DeleteEmployee(c *gin.Context) {
 		tx.Where("employee_id = ?", id).Delete(&models.ManualAttendance{})
 		tx.Model(&models.Employee{}).Where("manager_id = ?", id).Update("manager_id", nil)
 		tx.Where("employee_id = ?", id).Delete(&models.EmployeeDocument{})
+		tx.Where("employee_id = ?", id).Delete(&models.EmployeeContract{})
+		tx.Where("employee_id = ?", id).Delete(&models.EmployeeCompetency{})
 		tx.Where("employee_id = ?", id).Delete(&models.EmployeePlacement{})
 		var u models.User
 		if tx.Where("employee_id = ?", id).Limit(1).Find(&u).Error == nil && u.ID != 0 {
@@ -264,6 +316,9 @@ func DeleteEmployee(c *gin.Context) {
 	}
 	for _, f := range leaveFiles {
 		Store.Remove(f.LocalPath)
+	}
+	for _, p := range photoFiles {
+		Store.Remove(p.LocalPath)
 	}
 	audit(c, "delete", "employee", id)
 	c.JSON(http.StatusOK, gin.H{"ok": true})

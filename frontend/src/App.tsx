@@ -4,6 +4,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Org from './pages/Org'
 import Employees from './pages/Employees'
+import EmployeeDetail from './pages/EmployeeDetail'
 import Placeholder from './pages/Placeholder'
 import Leave from './pages/Leave'
 import Approvals from './pages/Approvals'
@@ -34,6 +35,8 @@ export default function App() {
         <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
         <Route path="/org" element={<PrivateRoute><Org /></PrivateRoute>} />
         <Route path="/employees" element={<PrivateRoute><Employees /></PrivateRoute>} />
+        <Route path="/employees/new" element={<PrivateRoute><EmployeeDetail /></PrivateRoute>} />
+        <Route path="/employees/:id" element={<PrivateRoute><EmployeeDetail /></PrivateRoute>} />
         <Route path="/attendance" element={<PrivateRoute><Attendance /></PrivateRoute>} />
         <Route path="/tasks" element={<PrivateRoute><Tasks /></PrivateRoute>} />
         <Route path="/projects" element={<PrivateRoute><Projects /></PrivateRoute>} />

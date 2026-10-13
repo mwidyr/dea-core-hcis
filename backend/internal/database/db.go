@@ -30,6 +30,7 @@ func Connect(cfg *config.Config) {
 	Seed(db)
 	seedLeaveTypes(db)
 	SeedWorkDefaults(db)
+	BackfillContracts(db) // after Seed: freshly seeded Kontrak employees get their contract row too
 	var ks int64
 	if db.Model(&models.KPISettings{}).Count(&ks); ks == 0 {
 		db.Create(&models.KPISettings{WeightKPI: 50, WeightTask: 30, WeightAttendance: 20, CompanyTarget: 90, GoodMin: 90, AttentionMin: 70})
@@ -54,6 +55,8 @@ func migrate(db *gorm.DB) {
 		&models.Employee{},
 		&models.EmployeePlacement{},
 		&models.EmployeeDocument{},
+		&models.EmployeeContract{},
+		&models.EmployeeCompetency{},
 		&models.User{},
 		&models.AuditLog{},
 		&models.ApprovalRequest{},
@@ -85,6 +88,7 @@ func migrate(db *gorm.DB) {
 		&models.KPISnapshot{},
 		&models.KPIDeptSnapshot{},
 		&models.AttendanceRecord{},
+		&models.AttendancePhoto{},
 		&models.ManualAttendance{},
 	)
 	if err != nil {
@@ -93,6 +97,9 @@ func migrate(db *gorm.DB) {
 	if freshAttachmentFlag {
 		db.Exec("UPDATE leave_types SET requires_attachment = true WHERE category = 'sakit'")
 	}
+	// position level classes were renamed (idempotent)
+	db.Exec("UPDATE positions SET level_class = 'Coordinator / Team Lead' WHERE level_class = 'Coordinator / Team Leader'")
+	db.Exec("UPDATE positions SET level_class = 'Non Staff' WHERE level_class = 'Non-Staff / Operator'")
 	// backfill for rows created before the status column existed
 	db.Exec("UPDATE employees SET status = CASE WHEN is_active THEN 'Aktif' ELSE 'Tidak Bekerja' END WHERE status IS NULL OR status = ''")
 	log.Println("Database migrated successfully")
@@ -158,4 +165,13 @@ func EnsureDefaultCalendar(db *gorm.DB, businessID uint) {
 		db.Create(&models.WorkCalendar{BusinessID: businessID, Name: "Kantor Reguler", WorkDays: "1,2,3,4,5", StartTime: "08:00", EndTime: "17:00",
 			BreakStart: "12:00", BreakEnd: "13:00", ToleranceMin: 10, RequireGPS: true, IsDefault: true, IsActive: true})
 	}
+}
+
+// BackfillContracts is idempotent: employees that carry contract dates but have no contract rows yet
+// (created before contract history existed, or just seeded) get one row from those dates.
+func BackfillContracts(db *gorm.DB) {
+	db.Exec(`INSERT INTO employee_contracts (employee_id, start_date, end_date, created_at)
+		SELECT e.id, COALESCE(e.contract_start, e.join_date, e.contract_end), e.contract_end, NOW() FROM employees e
+		WHERE (e.contract_start IS NOT NULL OR e.contract_end IS NOT NULL) AND COALESCE(e.contract_start, e.join_date, e.contract_end) IS NOT NULL
+		AND NOT EXISTS (SELECT 1 FROM employee_contracts c WHERE c.employee_id = e.id)`)
 }

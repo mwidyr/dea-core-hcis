@@ -11,7 +11,8 @@ import { deleteBusiness, deleteLocation, deletePosition, deleteUnit, getLocation
 import type { Business, Location, OrgUnit, Position } from '../types'
 
 type Tab = 'businesses' | 'units' | 'positions' | 'locations' | 'chart'
-const LEVEL_CLASSES = ['Direksi', 'General Manager / Business Head', 'Manager / Head', 'Coordinator / Team Leader', 'Supervisor', 'Staff', 'Non-Staff / Operator']
+// Order = seniority; the org chart puts each class on its own aligned row in this order.
+const LEVEL_CLASSES = ['Direksi', 'General Manager / Business Head', 'Manager / Head', 'Supervisor', 'Coordinator / Team Lead', 'Staff', 'Non Staff', 'Magang']
 
 export default function Org() {
   const { businessId, businesses, refresh } = useBusinessStore()
@@ -213,6 +214,39 @@ function OrgChart({ positions, businesses }: { positions: Position[]; businesses
   )
 }
 
+// ---- org chart: one row per level class so positions of the same level line up on a guide line ----
+const NODE_W = 170, NODE_H = 76, SLOT = 196, ROW = 128, GUTTER = 150, PAD = 24
+const levelRank = (cls: string) => { const i = LEVEL_CLASSES.indexOf(cls); return i < 0 ? LEVEL_CLASSES.indexOf('Staff') : i }
+
+interface Placed { p: Position; x: number; row: number }
+
+// Tidy-tree layout: x from leaf order (parent centred over its children), row from the level class.
+// A child never sits on or above its parent's row, so an unusual reporting line is pushed down a row instead.
+function layoutChart(positions: Position[]) {
+  const ids = new Set(positions.map((p) => p.id))
+  const kidsOf = new Map<number, Position[]>()
+  positions.forEach((p) => { if (p.reports_to_id && ids.has(p.reports_to_id)) kidsOf.set(p.reports_to_id, [...(kidsOf.get(p.reports_to_id) ?? []), p]) })
+  const roots = positions.filter((p) => !p.reports_to_id || !ids.has(p.reports_to_id))
+  const tiers = new Map<number, number>() // position id → level tier
+  const placed = new Map<number, Placed>()
+  let slot = 0
+  const walk = (p: Position, parentTier: number, seen: Set<number>): number => {
+    const tier = Math.max(levelRank(p.level_class), parentTier + 1)
+    tiers.set(p.id, tier)
+    const next = new Set(seen).add(p.id)
+    const kids = (kidsOf.get(p.id) ?? []).filter((k) => !next.has(k.id))
+    let x: number
+    if (!kids.length) x = slot++
+    else { const xs = kids.map((k) => walk(k, tier, next)); x = (xs[0] + xs[xs.length - 1]) / 2 }
+    placed.set(p.id, { p, x, row: 0 })
+    return x
+  }
+  roots.forEach((r) => walk(r, -1, new Set()))
+  const usedTiers = [...new Set(tiers.values())].sort((a, b) => a - b)
+  placed.forEach((v) => { v.row = usedTiers.indexOf(tiers.get(v.p.id)!) })
+  return { placed, rows: usedTiers.map((t) => LEVEL_CLASSES[Math.min(t, LEVEL_CLASSES.length - 1)]), slots: Math.max(slot, 1), kidsOf }
+}
+
 function BusinessChart({ biz, positions, zoom, resetKey }: { biz: Business; positions: Position[]; zoom: number; resetKey: number }) {
   const box = useRef<HTMLDivElement>(null)
   // keep the root centred in view whenever data/zoom changes
@@ -221,27 +255,20 @@ function BusinessChart({ biz, positions, zoom, resetKey }: { biz: Business; posi
     return () => clearTimeout(t)
   }, [positions, zoom, resetKey])
 
-  const ids = useMemo(() => new Set(positions.map((p) => p.id)), [positions])
-  const kids = (id: number) => positions.filter((p) => p.reports_to_id === id)
-  const roots = positions.filter((p) => !p.reports_to_id || !ids.has(p.reports_to_id))
+  const { placed, rows, slots, kidsOf } = useMemo(() => layoutChart(positions), [positions])
   const vacant = positions.filter((p) => p.holder === 'Vacant').length
+  const width = slots * SLOT + PAD * 2, height = rows.length * ROW + PAD
+  const cx = (x: number) => PAD + x * SLOT + SLOT / 2
+  const top = (row: number) => PAD / 2 + row * ROW
 
-  const node = (p: Position, seen: Set<number>): React.ReactNode => {
-    if (seen.has(p.id)) return null
-    const next = new Set(seen).add(p.id)
-    const c = kids(p.id)
-    return (
-      <li key={p.id}>
-        <div className="org-node">
-          {p.unit && <span className="inline-block mb-1 px-1.5 rounded bg-info-soft text-info text-[9px] font-bold">L{p.unit.level}</span>}
-          <div className="text-xs font-bold leading-tight">{p.title}</div>
-          <div className={`text-[10.5px] mt-0.5 ${p.holder === 'Vacant' ? 'text-warn font-semibold' : 'text-muted'}`}>{p.holder}</div>
-          <div className="text-[9.5px] text-gray-400">{p.unit?.name}</div>
-        </div>
-        {c.length > 0 && <ul>{c.map((k) => node(k, next))}</ul>}
-      </li>
-    )
-  }
+  // elbow connectors parent → each child
+  const links: string[] = []
+  placed.forEach(({ p, x, row }) => (kidsOf.get(p.id) ?? []).forEach((k) => {
+    const c = placed.get(k.id)
+    if (!c) return
+    const px = cx(x), py = top(row) + NODE_H, ky = top(c.row), my = py + 16
+    links.push(`M${px} ${py} V${my} H${cx(c.x)} V${ky}`)
+  }))
 
   return (
     <section className="border border-line rounded-xl overflow-hidden bg-white shadow-card">
@@ -256,8 +283,28 @@ function BusinessChart({ biz, positions, zoom, resetKey }: { biz: Business; posi
           {vacant > 0 && <Badge tone="amber">{vacant} vacant</Badge>}
         </div>
       </div>
-      <div ref={box} className="overflow-auto bg-gray-50/50 py-5 px-2 max-h-[70vh]">
-        <div className="org-tree w-max min-w-full" style={{ zoom }}><ul>{roots.map((r) => node(r, new Set()))}</ul></div>
+      <div ref={box} className="overflow-auto bg-gray-50/50 py-3 max-h-[70vh]">
+        <div className="flex w-max min-w-full" style={{ zoom }}>
+          {/* level labels stay visible while scrolling sideways */}
+          <div className="sticky left-0 z-20 shrink-0 bg-white/95 border-r border-line" style={{ width: GUTTER, height }}>
+            {rows.map((r, i) => (
+              <div key={r} className="absolute left-0 right-0 px-3 flex items-center text-[10.5px] font-bold text-muted leading-tight" style={{ top: top(i), height: NODE_H }}>{r}</div>
+            ))}
+          </div>
+          <div className="relative" style={{ width, height }}>
+            <svg className="absolute inset-0 pointer-events-none" width={width} height={height}>
+              {rows.map((_, i) => <line key={i} x1={0} x2={width} y1={top(i) + NODE_H / 2} y2={top(i) + NODE_H / 2} stroke="#d9dce1" strokeDasharray="4 5" />)}
+              {links.map((d, i) => <path key={i} d={d} fill="none" stroke="#c5cad1" strokeWidth={1.2} strokeLinejoin="round" />)}
+            </svg>
+            {[...placed.values()].map(({ p, x, row }) => (
+              <div key={p.id} className="org-node !block !max-w-none text-center overflow-hidden" style={{ position: 'absolute', left: cx(x) - NODE_W / 2, top: top(row), width: NODE_W, height: NODE_H }}>
+                <div className="text-xs font-bold leading-tight line-clamp-2">{p.title}</div>
+                <div className={`text-[10.5px] mt-0.5 truncate ${p.holder === 'Vacant' ? 'text-warn font-semibold' : 'text-muted'}`}>{p.holder}</div>
+                <div className="text-[9.5px] text-gray-400 truncate">{p.unit?.name}</div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </section>
   )

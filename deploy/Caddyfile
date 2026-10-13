@@ -8,8 +8,8 @@
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "same-origin"
-		# the public attendance page needs GPS from this origin only
-		Permissions-Policy "geolocation=(self), camera=(), microphone=()"
+		# the public attendance page needs GPS and the camera from this origin only
+		Permissions-Policy "geolocation=(self), camera=(self), microphone=()"
 		-Server
 	}
 

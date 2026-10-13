@@ -3,6 +3,10 @@ import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-r
 
 const PRESETS = [10, 20]
 export const MAX_PAGE_SIZE = 200
+/** pageSize sentinel for “Semua”: everything on one page. Server lists send page_size=0 (backend returns up to 5000). */
+export const ALL_PAGE_SIZE = 0
+/** rows per page to slice a client-side list with (ALL → the whole list). */
+export const rowsPerPage = (pageSize: number, total: number) => (pageSize === ALL_PAGE_SIZE ? Math.max(1, total) : pageSize)
 
 interface Props {
   page: number
@@ -26,11 +30,13 @@ function windowed(page: number, last: number): (number | '…')[] {
 }
 
 export default function Pagination({ page, pageSize, total, onPage, onPageSize }: Props) {
-  const last = Math.max(1, Math.ceil(total / pageSize))
+  const all = pageSize === ALL_PAGE_SIZE
+  const per = rowsPerPage(pageSize, total)
+  const last = all ? 1 : Math.max(1, Math.ceil(total / per))
   const cur = Math.min(page, last)
-  const from = total === 0 ? 0 : (cur - 1) * pageSize + 1
-  const to = Math.min(total, cur * pageSize)
-  const isCustom = !PRESETS.includes(pageSize)
+  const from = total === 0 ? 0 : (cur - 1) * per + 1
+  const to = Math.min(total, cur * per)
+  const isCustom = !all && !PRESETS.includes(pageSize)
   const [custom, setCustom] = useState(isCustom)
   const [customVal, setCustomVal] = useState(String(pageSize))
 
@@ -46,22 +52,24 @@ export default function Pagination({ page, pageSize, total, onPage, onPageSize }
     <div className="flex flex-wrap items-center justify-between gap-3 pt-3 text-xs">
       <div className="flex items-center gap-2 text-muted">
         <span>Tampilkan</span>
-        <select className="input !py-1" value={custom || isCustom ? 'custom' : pageSize}
+        <select className="input !py-1" value={all ? 'all' : custom || isCustom ? 'custom' : pageSize}
           onChange={(e) => {
             if (e.target.value === 'custom') { setCustom(true); applyCustom(customVal) }
+            else if (e.target.value === 'all') { setCustom(false); onPageSize(ALL_PAGE_SIZE) }
             else { setCustom(false); onPageSize(Number(e.target.value)) }
           }}>
           {PRESETS.map((n) => <option key={n} value={n}>{n}</option>)}
           <option value="custom">Custom…</option>
+          <option value="all">Semua</option>
         </select>
-        {(custom || isCustom) && (
+        {!all && (custom || isCustom) && (
           <input className="input !py-1 w-16" type="number" min={1} max={MAX_PAGE_SIZE} value={customVal}
             onChange={(e) => applyCustom(e.target.value)} title={`1–${MAX_PAGE_SIZE}`} />
         )}
-        <span>data · {from}–{to} dari {total}</span>
+        <span>{all ? `data · semua ${total}` : `data · ${from}–${to} dari ${total}`}</span>
       </div>
 
-      <div className="flex items-center gap-1">
+      {!all && <div className="flex items-center gap-1">
         <button className={btn} disabled={cur <= 1} onClick={() => onPage(1)} title="Halaman pertama"><ChevronsLeft className="w-3.5 h-3.5" /></button>
         <button className={btn} disabled={cur <= 1} onClick={() => onPage(cur - 1)} title="Sebelumnya"><ChevronLeft className="w-3.5 h-3.5" /></button>
         {windowed(cur, last).map((p, i) =>
@@ -70,7 +78,7 @@ export default function Pagination({ page, pageSize, total, onPage, onPageSize }
           ))}
         <button className={btn} disabled={cur >= last} onClick={() => onPage(cur + 1)} title="Berikutnya"><ChevronRight className="w-3.5 h-3.5" /></button>
         <button className={btn} disabled={cur >= last} onClick={() => onPage(last)} title="Halaman terakhir"><ChevronsRight className="w-3.5 h-3.5" /></button>
-      </div>
+      </div>}
     </div>
   )
 }

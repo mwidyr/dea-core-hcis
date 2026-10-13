@@ -67,6 +67,15 @@ func UploadEmployeeDocument(c *gin.Context) {
 		return
 	}
 	doc := models.EmployeeDocument{EmployeeID: empID, Label: label, FileName: fh.Filename, MimeType: mime, Size: size, LocalPath: rel, DriveStatus: "pending"}
+	if cid := strings.TrimSpace(c.PostForm("contract_id")); cid != "" && cid != "0" { // optional: attach to one contract period
+		var ct models.EmployeeContract
+		if database.DB.Where("id = ? AND employee_id = ?", cid, empID).First(&ct).Error != nil {
+			Store.Remove(rel)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "kontrak tidak ditemukan untuk karyawan ini"})
+			return
+		}
+		doc.ContractID = &ct.ID
+	}
 	database.DB.Create(&doc)
 	audit(c, "upload", "employee_document", doc.ID)
 	c.JSON(http.StatusOK, doc)
