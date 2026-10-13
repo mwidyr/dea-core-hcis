@@ -227,5 +227,38 @@ Skenario ujung ke ujung dengan akun seed:
 
 ---
 
+## 22. Revisi 1 & 2 (uji tambahan)
+**Tampilan**
+- [ ] **22.1** Tema navy di semua halaman; tombol tema (terang / gelap / ikuti perangkat) di header, login, dan `/absen`; pilihan tersimpan setelah muat ulang dan tidak berkedip saat dibuka.
+- [ ] **22.2** Layar HP (≤ 768 px): menu samping menjadi laci (tombol ☰), header meringkas aksi ke menu ⋮, tabel bisa digeser, form satu kolom, modal hampir layar penuh.
+- [ ] **22.3** Opsi **Semua** pada setiap pagination menampilkan seluruh baris dalam satu halaman; tabel Karyawan, Kontrak & Dokumen, dan Absensi bisa diurutkan (default nama A-Z).
+
+**Organisasi & Karyawan**
+- [ ] **22.4** Level posisi: Direksi, General Manager / Business Head, Manager / Head, Supervisor, Coordinator / Team Lead, Staff, Non Staff, Magang. Bagan: tanpa badge level, jabatan selevel sejajar pada garis putus-putus berlabel.
+- [ ] **22.5** Karyawan dibuka sebagai halaman penuh (tab Data Personal, Kompetensi History, Foto & Dokumen): riwayat kontrak (tambah kontrak ke-2 → "Kontrak saat ini" berubah, DOH tetap), POH, kompetensi (tambah/ubah/hapus), dokumen per kontrak.
+- [ ] **22.6** Status: Aktif, Non aktif, Suspend, Tidak Bekerja (manual). Non aktif tetap bisa login; Suspend / Tidak Bekerja tidak.
+- [ ] **22.7** Kontrak & Dokumen: urutkan "Kontrak Berakhir"; tombol riwayat menampilkan semua kontrak beserta jumlah dokumennya.
+
+**Cuti & Roster**
+- [ ] **22.8** Pengajuan cuti tetap *Pending Approval* sampai atasan menyetujui; super admin tidak bisa menyetujui pengajuannya sendiri (tombol tidak ada, API 403).
+- [ ] **22.9** Karyawan anggota roster: kalender kerja dan lokasi di form karyawan menampilkan roster (terkunci); hanya satu roster per karyawan (memasukkan ke roster lain memindahkannya).
+- [ ] **22.10** Setup Waktu Kerja → tab **Jadwal Roster** (kiri Penyesuaian Roster): daftar jendela KERJA/OFF per karyawan dan kalender bulanan berisi nama karyawan; filter roster/lokasi; klik tanggal menampilkan siapa kerja dan siapa OFF.
+
+**Tugas**
+- [ ] **22.11** List tanpa kolom Departemen, ada kolom Ketepatan; judul tugas Selesai dicoret; grouping "Unit Organisasi" dengan pilihan level (L1…).
+- [ ] **22.12** Ketepatan: To Do yang tanggal mulainya sudah tiba = Terlambat Mulai; In Progress / Review lewat deadline = Overdue; sebelum deadline = On Track.
+- [ ] **22.13** Progress manual (slider) untuk tugas tanpa sub tugas; progress induk = rata-rata berbobot sub tugas (bobot diisi di form sub tugas; dipakai bila semua sub tugas punya bobot).
+- [ ] **22.14** PIC mengajukan perubahan deadline + catatan → atasan menyetujui di Approval Saya → deadline berubah; ditolak → tetap. Tab **Riwayat** mencatat semua perubahan.
+- [ ] **22.15** Jenjang atasan PIC bisa dipilih sampai atasan tertinggi; Pemberi Tugas tidak menampilkan bawahan pembuat tugas.
+
+**Dashboard**
+- [ ] **22.16** Atasan/HR/Admin: tombol **Tim Saya | Personal**; karyawan biasa hanya Personal. Tata letak mengikuti prototype (5 kartu, Performance Departemen, Perlu Perhatian, Project Aktif, Team Performance, Aktivitas Hari Ini).
+- [ ] **22.17** "Lihat semua" pada Aktivitas menampilkan seluruh log (filter tanggal, paging); **Ekspor PDF** memuat semua bagian + seluruh log hari ini.
+
+**Absensi**
+- [ ] **22.18** `/absen` (HTTPS): ambil foto lalu Tap In/Out; foto bertimestamp server tampil di menu Absensi ("Lihat foto").
+- [ ] **22.19** Di luar radius GPS: muncul konfirmasi → kirim untuk approval; status "Menunggu Approval Lokasi" (belum dihitung hadir); atasan melihat foto di Approval Saya; disetujui → hadir/terlambat normal; ditolak → tap dibatalkan.
+- [ ] **22.20** Setelah Tap Out: ringkasan hari ini (selesai, dikerjakan, belum selesai); "Pindahkan ke besok" memindahkan tanggal mulai; deadline yang lewat dikirim sebagai pengajuan deadline. Pekerjaan setelah Tap Out masuk laporan hari kerja berikutnya.
+
 ### Catatan bug
 Format laporan bug: *modul · langkah · akun · hasil sebenarnya vs harapan · tangkapan layar · tanggal/jam* (jam membantu mencocokkan log backend).

@@ -16,7 +16,10 @@ import (
 	"gorm.io/gorm"
 )
 
-func init() { approval.Hooks["attendance_manual"] = manualAttendanceHook }
+func init() {
+	approval.Hooks["attendance_manual"] = manualAttendanceHook
+	approval.Hooks["attendance_location"] = locationApprovalHook
+}
 
 const maxGPSAccuracy = 300.0 // metres; worse than this cannot be trusted against a 100–200 m radius
 
@@ -39,14 +42,13 @@ func leaveOn(empID uint, d time.Time) (string, string) {
 	return r.Category, r.Name
 }
 
-// allowedLocations: the employee's own work location + the roster's; with neither set, every active location of the business.
+// allowedLocations: the roster's location for roster members, else the employee's own work location; with neither set, every active location of the business.
 func allowedLocations(emp models.Employee, s Sched) []models.Location {
 	var ids []uint
-	if emp.LocationID != nil {
-		ids = append(ids, *emp.LocationID)
-	}
-	if s.LocationID != nil {
+	if s.LocationID != nil { // roster member: the roster's location replaces the employee's own
 		ids = append(ids, *s.LocationID)
+	} else if emp.LocationID != nil {
+		ids = append(ids, *emp.LocationID)
 	}
 	var l []models.Location
 	q := database.DB.Where("is_active = true")
@@ -60,39 +62,51 @@ func allowedLocations(emp models.Employee, s Sched) []models.Location {
 }
 
 type tapRequest struct {
-	Emp      models.Employee
-	Action   string // in | out
-	Lat, Lng *float64
-	Acc      *float64
-	IP       string
-	Now      time.Time
-	Photo    image.Image // decoded camera photo; stamped and stored together with the record
+	Emp            models.Employee
+	Action         string // in | out
+	Lat, Lng       *float64
+	Acc            *float64
+	IP             string
+	Now            time.Time
+	ConfirmOutside bool        // the employee confirmed sending an out-of-radius tap for approval
+	Reason         string      // why they are outside (shown to the approver)
+	Photo          image.Image // decoded camera photo; stamped and stored together with the record
+}
+
+// outsideInfo: the tap is valid except that it is outside the allowed radius — it can be sent for location approval.
+type outsideInfo struct {
+	Distance int
+	Place    string
+	Radius   int
 }
 
 type tapError struct {
-	Status int
-	Msg    string
+	Status  int
+	Msg     string
+	Confirm *outsideInfo // set when the employee may confirm the tap and ask for approval
 }
 
 func (e *tapError) Error() string { return e.Msg }
 
 func fail(status int, format string, a ...any) *tapError {
-	return &tapError{status, fmt.Sprintf(format, a...)}
+	return &tapError{Status: status, Msg: fmt.Sprintf(format, a...)}
 }
 
 // checkGPS enforces the schedule's GPS policy: returns the nearest allowed location and the distance in metres.
-func checkGPS(emp models.Employee, s Sched, lat, lng, acc *float64) (*models.Location, *int, *tapError) {
+// With confirmOutside=false an out-of-radius tap comes back as a tapError carrying Confirm; with true it is accepted and
+// reported through the returned *outsideInfo (the caller then files the location approval).
+func checkGPS(emp models.Employee, s Sched, lat, lng, acc *float64, confirmOutside bool) (*models.Location, *int, *outsideInfo, *tapError) {
 	if !s.RequireGPS && (lat == nil || lng == nil) {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	if lat == nil || lng == nil {
-		return nil, nil, fail(http.StatusBadRequest, "Lokasi (GPS) wajib diaktifkan untuk absen. Izinkan akses lokasi pada browser lalu coba lagi.")
+		return nil, nil, nil, fail(http.StatusBadRequest, "Lokasi (GPS) wajib diaktifkan untuk absen. Izinkan akses lokasi pada browser lalu coba lagi.")
 	}
 	if *lat < -90 || *lat > 90 || *lng < -180 || *lng > 180 {
-		return nil, nil, fail(http.StatusBadRequest, "Koordinat lokasi tidak valid")
+		return nil, nil, nil, fail(http.StatusBadRequest, "Koordinat lokasi tidak valid")
 	}
 	if acc != nil && *acc > maxGPSAccuracy {
-		return nil, nil, fail(http.StatusBadRequest, "Akurasi GPS terlalu rendah (±%.0f m). Pindah ke area terbuka atau aktifkan GPS perangkat, lalu coba lagi.", *acc)
+		return nil, nil, nil, fail(http.StatusBadRequest, "Akurasi GPS terlalu rendah (±%.0f m). Pindah ke area terbuka atau aktifkan GPS perangkat, lalu coba lagi.", *acc)
 	}
 	var best *models.Location
 	bestD := math.MaxFloat64
@@ -109,15 +123,21 @@ func checkGPS(emp models.Employee, s Sched, lat, lng, acc *float64) (*models.Loc
 	}
 	if best == nil {
 		if !s.RequireGPS {
-			return nil, nil, nil
+			return nil, nil, nil, nil
 		}
-		return nil, nil, fail(http.StatusUnprocessableEntity, "Koordinat lokasi kerja belum diatur. Hubungi HR (Setup Organisasi → Lokasi).")
+		return nil, nil, nil, fail(http.StatusUnprocessableEntity, "Koordinat lokasi kerja belum diatur. Hubungi HR (Setup Organisasi → Lokasi).")
 	}
 	d := int(math.Round(bestD))
 	if s.RequireGPS && bestD > float64(best.RadiusM) {
-		return nil, nil, fail(http.StatusForbidden, "Anda berada %d m dari %s. Absen hanya dapat dilakukan dalam radius %d m.", d, best.Name, best.RadiusM)
+		info := &outsideInfo{Distance: d, Place: best.Name, Radius: best.RadiusM}
+		if !confirmOutside {
+			e := fail(http.StatusConflict, "Anda berada %d m dari %s (radius %d m).", d, best.Name, best.RadiusM)
+			e.Confirm = info
+			return nil, nil, nil, e
+		}
+		return best, &d, info, nil
 	}
-	return best, &d, nil
+	return best, &d, nil, nil
 }
 
 // performTap is the single place where a tap in / tap out is validated and stored.
@@ -136,7 +156,7 @@ func performTap(r tapRequest) (gin.H, *tapError) {
 			return nil, fail(http.StatusConflict, "Anda sedang %s (%s) pada hari ini, absen tidak diperlukan.", strings.ToLower(cat), name)
 		}
 		s := res.schedule(emp, date)
-		loc, dist, terr := checkGPS(emp, s, r.Lat, r.Lng, r.Acc)
+		loc, dist, outside, terr := checkGPS(emp, s, r.Lat, r.Lng, r.Acc, r.ConfirmOutside)
 		if terr != nil {
 			return nil, terr
 		}
@@ -149,8 +169,15 @@ func performTap(r tapRequest) (gin.H, *tapError) {
 		if existing.ID != 0 { // a manual row without tap-in
 			rec.ID, rec.CheckOutAt, rec.WorkMinutes, rec.EarlyLeaveMinutes = existing.ID, existing.CheckOutAt, existing.WorkMinutes, existing.EarlyLeaveMinutes
 		}
-		if terr := saveTapRecord(&rec, "in", r, loc); terr != nil {
+		if outside != nil {
+			rec.InLocStatus, rec.InLocReason = "pending", r.Reason
+		}
+		if terr := saveTapRecord(&rec, "in", r, loc, outside); terr != nil {
 			return nil, terr
+		}
+		if outside != nil {
+			return gin.H{"action": "in", "time": now, "status": "Menunggu Approval Lokasi", "pending_location": true, "late_minutes": late, "location": locName(loc), "distance": dist,
+				"message": fmt.Sprintf("Tap in tercatat, menunggu persetujuan atasan: Anda %d m dari %s (radius %d m)", outside.Distance, outside.Place, outside.Radius), "schedule": s.Start + "–" + s.End}, nil
 		}
 		status, msg := "Hadir", "Tap in berhasil"
 		if s.Status != "kerja" {
@@ -173,7 +200,7 @@ func performTap(r tapRequest) (gin.H, *tapError) {
 		return nil, fail(http.StatusBadRequest, "Anda belum tap in. Jika lupa tap in, ajukan Absensi Manual di aplikasi.")
 	}
 	s := res.schedule(emp, rec.Date)
-	loc, dist, terr := checkGPS(emp, s, r.Lat, r.Lng, r.Acc)
+	loc, dist, outside, terr := checkGPS(emp, s, r.Lat, r.Lng, r.Acc, r.ConfirmOutside)
 	if terr != nil {
 		return nil, terr
 	}
@@ -183,18 +210,28 @@ func performTap(r tapRequest) (gin.H, *tapError) {
 	if loc != nil {
 		rec.OutLocationID = &loc.ID
 	}
-	if terr := saveTapRecord(&rec, "out", r, loc); terr != nil {
+	if outside != nil {
+		rec.OutLocStatus, rec.OutLocReason = "pending", r.Reason
+	}
+	if terr := saveTapRecord(&rec, "out", r, loc, outside); terr != nil {
 		return nil, terr
 	}
 	msg := fmt.Sprintf("Tap out berhasil — total %d jam %d menit", work/60, work%60)
+	if outside != nil {
+		msg = fmt.Sprintf("Tap out tercatat, menunggu persetujuan atasan: Anda %d m dari %s (radius %d m)", outside.Distance, outside.Place, outside.Radius)
+	}
 	if early > 0 {
 		msg += fmt.Sprintf(" (pulang %d menit lebih awal)", early)
 	}
-	return gin.H{"action": "out", "time": now, "status": "Pulang", "early_leave_minutes": early, "work_minutes": work, "location": locName(loc), "distance": dist, "message": msg}, nil
+	res2 := gin.H{"action": "out", "time": now, "status": "Pulang", "early_leave_minutes": early, "work_minutes": work, "location": locName(loc), "distance": dist, "message": msg, "work_date": rec.Date}
+	if outside != nil {
+		res2["pending_location"] = true
+	}
+	return res2, nil
 }
 
 // saveTapRecord stores the attendance row and, when the tap carries a photo, the stamped photo — all or nothing.
-func saveTapRecord(rec *models.AttendanceRecord, kind string, r tapRequest, loc *models.Location) *tapError {
+func saveTapRecord(rec *models.AttendanceRecord, kind string, r tapRequest, loc *models.Location, outside *outsideInfo) *tapError {
 	var shot []byte
 	if r.Photo != nil {
 		var err error
@@ -208,6 +245,11 @@ func saveTapRecord(rec *models.AttendanceRecord, kind string, r tapRequest, loc 
 		if err := tx.Save(rec).Error; err != nil {
 			return err
 		}
+		if outside != nil { // outside the radius: file the location approval, the record stays "pending" until it is decided
+			if err := submitLocationApproval(tx, rec, kind, r, outside); err != nil {
+				return err
+			}
+		}
 		if shot == nil {
 			return nil
 		}
@@ -218,6 +260,9 @@ func saveTapRecord(rec *models.AttendanceRecord, kind string, r tapRequest, loc 
 	if err != nil {
 		if stored != "" {
 			Store.Remove(stored)
+		}
+		if strings.Contains(err.Error(), "approver") {
+			return fail(http.StatusUnprocessableEntity, "Tidak ada atasan/HR yang dapat menyetujui absen di luar lokasi. Hubungi HR.")
 		}
 		return fail(http.StatusInternalServerError, "Gagal menyimpan absensi")
 	}
@@ -262,6 +307,9 @@ type attRow struct {
 	RecordID     uint       `json:"record_id"`
 	HasInPhoto   bool       `json:"has_in_photo"`
 	HasOutPhoto  bool       `json:"has_out_photo"`
+	InLocStatus  string     `json:"in_loc_status"` // pending | approved | rejected | "" (inside the radius)
+	OutLocStatus string     `json:"out_loc_status"`
+	LocReason    string     `json:"loc_reason"`
 }
 
 func attendanceEmployees(c *gin.Context) []models.Employee {
@@ -286,6 +334,9 @@ func schedText(s Sched) string {
 
 // statusFor derives the day's status from schedule + record + leave (see package doc on leave).
 func statusFor(s Sched, rec *models.AttendanceRecord, leaveCat string, d, now time.Time) string {
+	if rec != nil && rec.CheckInAt != nil && rec.InLocStatus == "pending" {
+		return "Menunggu Approval Lokasi" // outside the radius: not present until a superior approves the location
+	}
 	if rec != nil && rec.CheckInAt != nil {
 		if s.Status == "kerja" && rec.LateMinutes > 0 {
 			return "Terlambat"
@@ -420,6 +471,7 @@ func AttendanceDaily(c *gin.Context) {
 			r.CheckIn, r.CheckOut, r.Late, r.Early, r.Work, r.WorkedOff = rec.CheckInAt, rec.CheckOutAt, rec.LateMinutes, rec.EarlyLeaveMinutes, rec.WorkMinutes, rec.WorkedOnOffDay
 			r.InDistance, r.OutDistance, r.Source, r.Note = rec.InDistance, rec.OutDistance, rec.Source, rec.Note
 			r.RecordID, r.HasInPhoto, r.HasOutPhoto = rec.ID, photos[rec.ID]["in"], photos[rec.ID]["out"]
+			r.InLocStatus, r.OutLocStatus, r.LocReason = rec.InLocStatus, rec.OutLocStatus, strings.TrimSpace(rec.InLocReason+" "+rec.OutLocReason)
 			if rec.InLocationID != nil {
 				r.InLocation = locs[*rec.InLocationID]
 			}
@@ -510,7 +562,7 @@ func buildRecap(emps []models.Employee, first, last time.Time) []recapRow {
 			k := fmt.Sprintf("%d|%s", e.ID, d.Format("2006-01-02"))
 			s := res.schedule(e, d)
 			rec := recAt[k]
-			if rec != nil && rec.CheckInAt != nil {
+			if rec != nil && rec.CheckInAt != nil && rec.InLocStatus != "pending" {
 				r.Present++
 				r.Minutes += rec.WorkMinutes
 				if s.Status == "kerja" {
@@ -652,6 +704,7 @@ func manualAttendanceHook(tx *gorm.DB, req *models.ApprovalRequest, outcome stri
 		rec.OutLat, rec.OutLng, rec.OutAccuracy, rec.OutDistance, rec.OutLocationID = nil, nil, nil, nil, nil
 		rec.LateMinutes, rec.EarlyLeaveMinutes, rec.WorkMinutes = late, early, work
 		rec.WorkedOnOffDay, rec.Source, rec.Note = s.Status != "kerja", "manual", "Absensi manual: "+m.Reason
+		rec.InLocStatus, rec.OutLocStatus, rec.InLocApprovalID, rec.OutLocApprovalID = "", "", nil, nil // an approved correction replaces any pending location request
 		if err := tx.Save(&rec).Error; err != nil {
 			return err
 		}

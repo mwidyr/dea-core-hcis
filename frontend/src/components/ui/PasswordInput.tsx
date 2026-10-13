@@ -8,7 +8,7 @@ export default function PasswordInput({ className = '', ...props }: Omit<InputHT
     <div className="relative">
       <input {...props} type={show ? 'text' : 'password'} className={`input w-full pr-9 ${className}`} />
       <button type="button" tabIndex={-1} onClick={() => setShow((s) => !s)}
-        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted hover:text-gray-700"
+        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted hover:text-ink"
         title={show ? 'Sembunyikan password' : 'Tampilkan password'} aria-label={show ? 'Sembunyikan password' : 'Tampilkan password'}>
         {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
       </button>

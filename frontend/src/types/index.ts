@@ -17,8 +17,15 @@ export interface Employee {
   employee_type: string; contract_start?: string | null; contract_end: string | null; join_date: string | null
   status: 'Aktif' | 'Non aktif' | 'Suspend' | 'Tidak Bekerja'; status_note?: string; is_active: boolean; location_id?: number | null
   position?: Position; unit?: OrgUnit; location?: Location; business?: Business; placements?: Placement[]
-  contracts?: EmployeeContract[]; contract_count?: number; doh?: string | null
+  contracts?: EmployeeContract[]; contract_count?: number; doh?: string | null; roster?: EmployeeRoster
 }
+export interface EmployeeRoster { id: number; name: string; pattern: string; start_time: string; end_time: string; location_id: number | null; location_name: string; start_cycle?: string }
+export interface RosterDayRow {
+  employee_id: number; name: string; nik: string; business_name: string; roster_id: number; roster_name: string; pattern: string
+  location_id: number | null; location_name: string; start_cycle: string
+  days: ('kerja' | 'off' | 'libur')[]; adjusted: number[]; windows: { status: 'kerja' | 'off' | 'libur'; from: string; to: string }[]
+}
+export interface RosterScheduleData { month: string; from: string; to: string; days_in_month: number; rosters: EmployeeRoster[]; employees: RosterDayRow[] }
 export interface EmployeeContract { id: number; employee_id: number; number: string; start_date: string; end_date: string | null; note: string; doc_count?: number }
 export interface EmployeeCompetency { id: number; employee_id: number; kind: string; name: string; institution: string; start_year: number; end_year: number; cert_no: string; note: string }
 export interface EmployeeDocument { id: number; employee_id: number; contract_id?: number | null; label: string; file_name: string; mime_type: string; size: number; drive_status: string; created_at: string }
@@ -48,12 +55,13 @@ export interface LeaveCalc { days: number; skipped: { date: string; name: string
 
 export interface WorkCalendar { id: number; business_id: number; name: string; work_days: string; start_time: string; end_time: string; break_start: string; break_end: string; tolerance_min: number; require_gps: boolean; is_default: boolean; is_active: boolean; employee_count?: number }
 export interface Roster { id: number; business_id: number; name: string; work_units: number; off_units: number; unit: 'hari' | 'minggu'; location_id: number | null; start_time: string; end_time: string; break_start: string; break_end: string; tolerance_min: number; require_gps: boolean; start_cycle: string; is_active: boolean; pattern?: string; employee_count?: number; employee_ids?: number[]; members?: { employee_id: number; start_cycle: string }[] }
-export type AttStatus = 'Hadir' | 'Terlambat' | 'Belum Absen' | 'Tidak Hadir' | 'Cuti' | 'Izin' | 'Sakit' | 'OFF' | 'Libur' | 'Terjadwal'
+export type AttStatus = 'Menunggu Approval Lokasi' | 'Hadir' | 'Terlambat' | 'Belum Absen' | 'Tidak Hadir' | 'Cuti' | 'Izin' | 'Sakit' | 'OFF' | 'Libur' | 'Terjadwal'
 export interface AttRow {
   employee_id: number; name: string; nik: string; unit_name: string; business_name: string; location_name: string; pattern: string; policy: string
   sched_status: string; schedule: string; holiday: string; status: AttStatus; leave_type: string; check_in: string | null; check_out: string | null
   late_minutes: number; early_leave_minutes: number; work_minutes: number; worked_on_off_day: boolean; in_location: string; in_distance: number | null; out_distance: number | null; source: string; note: string
   record_id: number; has_in_photo: boolean; has_out_photo: boolean
+  in_loc_status?: string; out_loc_status?: string; loc_reason?: string
 }
 export interface AttSummary { kerja?: number; hadir?: number; izin?: number; sakit?: number; belum?: number; terlambat?: number; kerja_hari_libur?: number; nonkerja?: number; cuti?: number; off?: number; libur?: number }
 export interface RecapRow { employee_id: number; name: string; nik: string; unit_name: string; business_name: string; location_name: string; work_days: number; present: number; late: number; absent: number; cuti: number; izin: number; sakit: number; worked_off: number; off: number; holiday: number; work_minutes: number; rate: number }
@@ -75,14 +83,21 @@ export interface TaskRow {
   progress: number; is_parent: boolean; kids_total: number; kids_done: number; overdue: boolean; members: TaskMember[]
   attachment_count: number; comment_count: number; waiting_for: string; can_manage: boolean; can_work: boolean; depth: number
   kpi_id: number | null; kpi_title: string
+  own_progress: number; actual_start: string | null; is_pic: boolean
+  timeliness: Timeliness; timeliness_label: string; unit_path: { level: number; name: string }[]
+  pending_deadline?: DeadlineRequest | null
 }
+export type Timeliness = '' | 'late_start' | 'overdue' | 'on_track' | 'done_on_time' | 'done_late'
+export interface DeadlineRequest { id: number; task_id: number; requested_by: number; old_due: string | null; new_due: string; note: string; status: 'Pending Approval' | 'Disetujui' | 'Ditolak' | 'Dibatalkan'; waiting_for: string; user_name: string; created_at: string }
+export interface TaskHistoryRow { id: number; task_id: number; user_id: number; user_name: string; field: string; old_value: string; new_value: string; note: string; created_at: string }
 export interface TaskDetailData {
   task: TaskRow; children: TaskRow[]; ancestors: { id: number; title: string }[]
   comments: { id: number; user_name: string; body: string; created_at: string }[]
   attachments: { id: number; file_name: string; mime_type: string; size: number }[]
+  history: TaskHistoryRow[]; deadline_requests: DeadlineRequest[]
 }
-export interface TaskSummary { total?: number; parents?: number; subtasks?: number; open?: number; done?: number; overdue?: number; review?: number }
-export interface Assignee { id: number; name: string; business_id: number; unit_id: number | null; unit_name: string; nik: string }
+export interface TaskSummary { total?: number; parents?: number; subtasks?: number; open?: number; done?: number; overdue?: number; review?: number; late_start?: number }
+export interface Assignee { id: number; name: string; business_id: number; unit_id: number | null; unit_name: string; nik: string; relation?: 'diri' | 'bawahan' | 'atasan' | 'lainnya' }
 export interface Project {
   id: number; business_id: number; name: string; description: string; owner_id: number; owner_name: string
   start_date: string | null; end_date: string | null; status: 'Aktif' | 'Ditunda' | 'Selesai' | 'Dibatalkan'
@@ -123,7 +138,7 @@ export interface RecurringTask {
 export interface PermDef { key: string; label: string; group: string; hint?: string; locked?: boolean }
 export interface ReportData { type: string; title: string; subtitle: string; columns: string[]; rows: (string | number)[][]; summary: string[][]; can_export: boolean }
 export interface DashboardData {
-  scope: string
+  scope: string; view: 'team' | 'me'; can_team: boolean
   people: { active: number; tetap: number; kontrak: number; freelance: number; expiring: number; vacant: number }
   attendance: { scheduled: number; present: number; late: number; leave: number; absent: number; trend: { date: string; label: string; present: number; late: number; leave: number; absent: number }[] }
   tasks: { status: Record<string, number>; overdue: number; due_week: number; weekly: { label: string; created: number; completed: number }[] }
@@ -132,7 +147,20 @@ export interface DashboardData {
   on_leave: { name: string; type: string; until: string }[]
   projects: { active: number; top: { id: number; name: string; owner: string; progress: number; overdue: number; end: string }[] }
   kpi: { period: string; average: number; scored: number; good: number; attention: number; critical: number; top: PerfRow[]; bottom: PerfRow[]; settings: KpiSettings; closed: boolean }
+  actions: { title: string; sub: string; badge: string; tone: 'red' | 'amber' | 'blue' | 'gray' | 'green'; to: string }[]
+  project_rows: DashProject[]
+  units?: { name: string; score: number; count: number }[]
+  team?: { employee_id: number; name: string; unit: string; open: number; overdue: number; kpi: number | null; attendance: number | null }[]
+  personal?: {
+    name: string; position?: string; pending_leave_mine: number
+    attendance_today: { status: string; check_in?: string; check_out?: string; late_minutes?: number; work_minutes?: number }
+    leave: { remaining: number; used: number; pending: number; initial: number }
+    my_tasks: { id: number; title: string; project: string; due: string; status: string; timeliness: string; timeliness_label: string; progress: number }[]
+  }
+  activity: ActivityItem[]; activity_total: number
 }
+export interface DashProject { id: number; name: string; desc: string; business: string; owner: string; start: string; end: string; days_left: number | null; tasks: number; open: number; overdue: number; progress: number; status: string; status_tone: 'red' | 'blue' | 'green' }
+export interface ActivityItem { id: number; at: string; time: string; actor: string; title: string; desc: string; tone: 'ok' | 'warn' | 'danger' | 'info' | 'muted'; link: string }
 export interface PerfRow { name: string; unit: string; score: number; status: KpiStatus }
 
 export interface DriveStatusData {

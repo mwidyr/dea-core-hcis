@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { DriveStatusData, DashboardData, PermDef, ReportData, KpiClose, KpiHistoryRow, RecurringTask, DeptKpi, EmpScore, KpiItem, KpiSettings, ScoreTaskRow, Assignee, CurvePoint, Project, TaskDetailData, TaskRow, TaskSummary, DevAccount, AppNotification, RosterWindow, RosterAdjustment, AttRow, AttSummary, ManualRow, RecapRow, Roster, ShiftRow, WorkCalendar, Holiday, LeaveCalc, AppUser, ApprovalRequest, AuditRow, Business, Employee, EmployeeContract, EmployeeCompetency, EmployeeDocument, LeaveBalanceRow, LeaveRow, LeaveSummary, LeaveType, Person, Location, OrgUnit, Position, User } from '../types'
+import type { ActivityItem, RosterScheduleData, DriveStatusData, DashboardData, PermDef, ReportData, KpiClose, KpiHistoryRow, RecurringTask, DeptKpi, EmpScore, KpiItem, KpiSettings, ScoreTaskRow, Assignee, CurvePoint, Project, TaskDetailData, TaskRow, TaskSummary, DevAccount, AppNotification, RosterWindow, RosterAdjustment, AttRow, AttSummary, ManualRow, RecapRow, Roster, ShiftRow, WorkCalendar, Holiday, LeaveCalc, AppUser, ApprovalRequest, AuditRow, Business, Employee, EmployeeContract, EmployeeCompetency, EmployeeDocument, LeaveBalanceRow, LeaveRow, LeaveSummary, LeaveType, Person, Location, OrgUnit, Position, User } from '../types'
 
 // VITE_API_URL points at a backend on another domain; default is the Vite-proxied /api.
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api' })
@@ -116,7 +116,7 @@ export const adjustLeaveBalance = (employeeId: number, d: { year: number; initia
 export const getLeaveSummary = (params?: object) => api.get<LeaveSummary>('/leave/summary', { params })
 
 // Approval
-export const getApprovers = (employeeId?: number) => api.get<{ nplus1: Person[]; candidates: Person[] }>('/approvers', { params: { employee_id: employeeId } })
+export const getApprovers = (employeeId?: number) => api.get<{ nplus1: Person[]; candidates: Person[]; max_levels?: number }>('/approvers', { params: { employee_id: employeeId } })
 export const getApprovalInbox = (params?: object) => api.get<ApprovalRequest[]>('/approvals/inbox', { params })
 export const getApprovalCount = () => api.get<{ inbox: number }>('/approvals/count')
 export const getApprovalHistory = (params?: object) => api.get<ApprovalRequest[]>('/approvals/history', { params })
@@ -136,6 +136,7 @@ export const getWorkCalendars = (params?: object) => api.get<{ data: WorkCalenda
 export const saveWorkCalendar = (d: Partial<WorkCalendar>) => (d.id ? api.put(`/work-calendars/${d.id}`, d) : api.post('/work-calendars', d))
 export const deleteWorkCalendar = (id: number) => api.delete(`/work-calendars/${id}`)
 export const getRosters = (params?: object) => api.get<{ data: Roster[]; can_manage: boolean; can_assign: boolean }>('/rosters', { params })
+export const getRosterSchedule = (params: { month: string; roster_id?: number; location_id?: number; business_id?: number }) => api.get<RosterScheduleData>('/roster-schedule', { params })
 export const saveRoster = (d: Partial<Roster>) => (d.id ? api.put(`/rosters/${d.id}`, d) : api.post('/rosters', d))
 export const deleteRoster = (id: number) => api.delete(`/rosters/${id}`)
 // members carry THEIR OWN cycle start (the first work day of that employee's cycle)
@@ -152,15 +153,23 @@ export const getManualAttendance = (params?: object) => api.get<ManualRow[]>('/a
 export const createManualAttendance = (d: object) => api.post('/attendance/manual', d)
 export const cancelManualAttendance = (id: number) => api.post(`/attendance/manual/${id}/cancel`)
 
-export interface TapResult { action: 'in' | 'out'; time: string; status: string; message: string; name: string; nik: string; position?: string; location?: string; distance?: number; late_minutes?: number; work_minutes?: number; schedule?: string }
+export interface SummaryTask { id: number; title: string; project: string; due: string; status: string; progress: number; timeliness: string; timeliness_label: string; changes?: string[]; movable: boolean }
+export interface DaySummary { date: string; from: string; to: string; next_workday: string; done: SummaryTask[]; worked: SummaryTask[]; unfinished: SummaryTask[] }
+export interface TapResult {
+  action: 'in' | 'out'; time: string; status: string; message: string; name: string; nik: string; position?: string; location?: string; distance?: number; late_minutes?: number; work_minutes?: number; schedule?: string
+  pending_location?: boolean; summary?: DaySummary; summary_token?: string
+}
+/** 409 from the tap endpoint when the position is outside the work location's radius: the employee may confirm and ask for approval */
+export interface OutsideInfo { needs_confirm: true; error: string; distance: number; location: string; radius_m: number; name?: string }
 export const publicClock = () => api.get<{ ms: number }>('/public/clock')
 // multipart: the camera photo is mandatory; the server stamps time / place / name onto it
-export const publicTap = (d: { identifier?: string; password?: string; dev_user_id?: number; action: 'in' | 'out'; lat?: number; lng?: number; accuracy?: number }, photo: Blob) => {
+export const publicTap = (d: { identifier?: string; password?: string; dev_user_id?: number; action: 'in' | 'out'; lat?: number; lng?: number; accuracy?: number; confirm_outside?: 1; reason?: string }, photo: Blob) => {
   const f = new FormData()
   Object.entries(d).forEach(([k, v]) => { if (v !== undefined && v !== null) f.append(k, String(v)) })
   f.append('photo', photo, 'absen.jpg')
   return api.post<TapResult>('/public/attendance', f)
 }
+export const publicMoveTomorrow = (token: string, taskId: number) => api.post<{ ok: boolean; message: string; next_workday: string; start_moved?: boolean; request_created?: boolean }>('/public/move-tomorrow', { token, task_id: taskId })
 export const fetchAttendancePhotoBlob = (recordId: number, kind: 'in' | 'out') =>
   api.get<Blob>(`/attendance/records/${recordId}/photo`, { params: { kind }, responseType: 'blob' })
 
@@ -168,10 +177,14 @@ export const fetchAttendancePhotoBlob = (recordId: number, kind: 'in' | 'out') =
 export const getTasks = (params?: object) => api.get<{ data: TaskRow[]; summary: TaskSummary }>('/tasks', { params })
 export const getTask = (id: number) => api.get<TaskDetailData>(`/tasks/${id}`)
 export const getTaskAssignees = () => api.get<Assignee[]>('/tasks/assignees')
+export const getTaskGivers = () => api.get<Assignee[]>('/tasks/givers')
 export const createTask = (d: object) => api.post<TaskRow>('/tasks', d)
 export const updateTask = (id: number, d: object) => api.put<TaskRow>(`/tasks/${id}`, d)
 export const deleteTask = (id: number) => api.delete(`/tasks/${id}`)
 export const setTaskStatus = (id: number, status: 'todo' | 'in_progress') => api.post(`/tasks/${id}/status`, { status })
+export const setTaskProgress = (id: number, progress: number, note = '') => api.put(`/tasks/${id}/progress`, { progress, note })
+export const requestDeadlineChange = (id: number, new_due: string, note: string) => api.post(`/tasks/${id}/deadline-request`, { new_due, note })
+export const cancelDeadlineRequest = (id: number) => api.post(`/tasks/${id}/deadline-request/cancel`)
 export const completeTask = (id: number, note: string) => api.post<{ status: string }>(`/tasks/${id}/complete`, { note })
 export const cancelTaskCompletion = (id: number) => api.post(`/tasks/${id}/cancel-completion`)
 export const reopenTask = (id: number, note: string) => api.post(`/tasks/${id}/reopen`, { note })
@@ -221,6 +234,7 @@ export const updateRecurringTask = (id: number, d: object) => api.put<RecurringT
 export const deleteRecurringTask = (id: number) => api.delete(`/recurring-tasks/${id}`)
 
 export const getDashboard = (params: object) => api.get<DashboardData>('/dashboard', { params })
+export const getActivity = (params: { date?: string; page?: number; page_size?: number; scope?: 'me' | 'team' }) => api.get<{ data: ActivityItem[]; total: number; page: number; page_size: number }>('/dashboard/activity', { params })
 export const getReport = (type: string, params: object) => api.get<ReportData>(`/reports/${type}`, { params })
 export const downloadReportXlsx = async (type: string, params: object) => {
   const r = await api.get(`/reports/${type}`, { params: { ...params, format: 'xlsx' }, responseType: 'blob' })

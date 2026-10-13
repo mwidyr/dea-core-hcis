@@ -10,6 +10,7 @@ import Modal from '../components/ui/Modal'
 import ProgressBar from '../components/ui/ProgressBar'
 import StatCard from '../components/ui/StatCard'
 import Tabs from '../components/ui/Tabs'
+import { useThemeColors } from '../utils/theme'
 import { STATUS_COLOR, STATUS_TONE, num, pctText, scoreColor } from '../components/kpi/kpiUtils'
 import { useAuthStore } from '../store/auth'
 import { bizParams, useBusinessStore } from '../store/business'
@@ -76,11 +77,11 @@ function DeptTab({ period }: { period: string }) {
   return (
     <>
       <ClosedBanner closed={closed} />
-      <div className="grid grid-cols-4 gap-3 mb-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
         <StatCard label="Company KPI" value={<span style={{ color: scoreColor(sum?.company_score, target) }}>{pctText(sum?.company_score)}</span>} foot="rata-rata berbobot KPI departemen" />
         <StatCard label="Target Perusahaan" value={`${target}%`} foot="diatur di Settings → KPI" />
         <StatCard label="Best Dept" value={sum?.best ? `${num(sum.best.score)}%` : '–'} foot={sum?.best?.unit_name ?? 'belum ada data'} />
-        <StatCard label="Need Attention" value={<span className={(sum?.attention ?? 0) > 0 ? 'text-brand' : ''}>{sum?.attention ?? 0}</span>} foot="departemen di bawah Good" />
+        <StatCard label="Need Attention" value={<span className={(sum?.attention ?? 0) > 0 ? 'text-danger' : ''}>{sum?.attention ?? 0}</span>} foot="departemen di bawah Good" />
       </div>
       <p className="text-xs text-muted mb-2">Target departemen diturunkan dari objective perusahaan. Actual diisi manual, atau otomatis dari <b>rata-rata skor akhir karyawan</b> di unit tersebut (termasuk sub-unit).</p>
       <DataTable data={rows} rowKey={(d) => d.id} searchPlaceholder="Cari departemen atau objective…" searchText={(d) => `${d.unit_name} ${d.objective}`} empty="Belum ada KPI departemen untuk periode ini"
@@ -93,7 +94,7 @@ function DeptTab({ period }: { period: string }) {
           { head: 'Weight', render: (d) => (d.weight ? `${num(d.weight, 0)}%` : '–') },
           { head: 'Score', render: (d) => <div className="w-32"><ProgressBar value={Math.min(100, d.score)} color={STATUS_COLOR[d.status]} label={false} /><b className="text-[11px]">{num(d.score)}%</b></div> },
           { head: 'Status', render: (d) => <Badge tone={STATUS_TONE[d.status]}>{d.status}</Badge> },
-          { head: 'Aksi', render: (d) => can && <div className="flex gap-1.5"><button className="btn" onClick={() => setEdit(d)}>Edit</button><button className="btn text-brand" onClick={async () => { if (confirm(`Hapus KPI "${d.objective}"?`)) { await deleteDeptKpi(d.id); load() } }}>Hapus</button></div> },
+          { head: 'Aksi', render: (d) => can && <div className="flex gap-1.5"><button className="btn" onClick={() => setEdit(d)}>Edit</button><button className="btn text-danger" onClick={async () => { if (confirm(`Hapus KPI "${d.objective}"?`)) { await deleteDeptKpi(d.id); load() } }}>Hapus</button></div> },
         ]} />
       {edit && <DeptForm initial={edit} period={period} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load() }} />}
     </>
@@ -120,11 +121,11 @@ function DeptForm({ initial, period, onClose, onSaved }: { initial: Partial<Dept
     <Modal open onClose={onClose} title={editing ? 'Ubah KPI Departemen' : 'Tambah KPI Departemen'}>
       <div className="space-y-3 text-xs">
         <label className="block font-semibold">Departemen (unit organisasi)
-          <select className="input w-full mt-1 disabled:bg-gray-100" disabled={editing} value={f.unit_id || ''} onChange={(e) => setF({ ...f, unit_id: Number(e.target.value) })}>
+          <select className="input w-full mt-1 disabled:bg-tint" disabled={editing} value={f.unit_id || ''} onChange={(e) => setF({ ...f, unit_id: Number(e.target.value) })}>
             <option value="">— Pilih unit —</option>{units.map((u) => <option key={u.id} value={u.id}>{bizName(u.business_id)} · L{u.level} {u.name}</option>)}
           </select></label>
         <label className="block font-semibold">Objective<input className="input w-full mt-1" value={f.objective} onChange={(e) => setF({ ...f, objective: e.target.value })} placeholder="mis. Operational Delivery" /></label>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <label className="block font-semibold">Target<input className="input w-full mt-1" type="number" step="any" value={f.target} onChange={(e) => setF({ ...f, target: e.target.value })} /></label>
           <label className="block font-semibold">Satuan<input className="input w-full mt-1" value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })} /></label>
           <label className="block font-semibold">Bobot (%)<input className="input w-full mt-1" type="number" min={0} max={100} value={f.weight} onChange={(e) => setF({ ...f, weight: e.target.value })} /></label>
@@ -138,7 +139,7 @@ function DeptForm({ initial, period, onClose, onSaved }: { initial: Partial<Dept
         </div>
         {f.source === 'manual' && <label className="block font-semibold">Actual<input className="input w-full mt-1" type="number" step="any" value={f.actual} onChange={(e) => setF({ ...f, actual: e.target.value })} /></label>}
         <p className="text-muted">Skor = actual ÷ target × 100 (maksimal 120%; terbalik untuk “lebih kecil lebih baik”). Bila semua KPI memiliki bobot, Company KPI dihitung berbobot; jika tidak, rata-rata biasa.</p>
-        {error && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2">{error}</div>}
+        {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}
         <div className="flex justify-end gap-2"><button className="btn" onClick={onClose}>Batal</button><button className="btn-primary" onClick={submit}>Simpan</button></div>
       </div>
     </Modal>
@@ -157,8 +158,8 @@ function ItemsTab({ period }: { period: string }) {
   return (
     <>
       <ClosedBanner closed={closed} />
-      <div className="bg-gray-50 rounded-lg p-3 mb-3 text-xs text-muted">
-        <b className="text-gray-800">KPI otomatis dari tugas:</b> pilih metode “Tugas tepat waktu”, lalu tautkan tugas ke KPI itu (kolom <i>Terkait KPI</i> di form tugas). Actual = jumlah tugas tertaut yang selesai <b>tepat waktu</b> pada periode ini. Contoh: target 12 laporan, 11 selesai tepat waktu → 91,7%.
+      <div className="bg-sunken rounded-lg p-3 mb-3 text-xs text-muted">
+        <b className="text-ink">KPI otomatis dari tugas:</b> pilih metode “Tugas tepat waktu”, lalu tautkan tugas ke KPI itu (kolom <i>Terkait KPI</i> di form tugas). Actual = jumlah tugas tertaut yang selesai <b>tepat waktu</b> pada periode ini. Contoh: target 12 laporan, 11 selesai tepat waktu → 91,7%.
       </div>
       <DataTable data={rows} rowKey={(k) => k.id} searchPlaceholder="Cari karyawan atau KPI…" searchText={(k) => `${k.employee_name} ${k.title} ${k.unit_name}`} empty="Belum ada KPI karyawan untuk periode ini"
         actions={canAssign ? <button className="btn-primary" onClick={() => setEdit({ metric: 'tasks_on_time', direction: 'higher', unit: 'tugas', weight: 0 })}><Plus className="w-3.5 h-3.5 inline mr-1" />Assign KPI</button> : undefined}
@@ -171,7 +172,7 @@ function ItemsTab({ period }: { period: string }) {
           { head: 'Score', render: (k) => <div className="w-28"><ProgressBar value={Math.min(100, k.score)} color={STATUS_COLOR[k.status]} label={false} small /><b className="text-[11px]">{num(k.score)}%</b></div> },
           { head: 'Bobot', render: (k) => (k.weight ? `${num(k.weight, 0)}%` : '–') },
           { head: 'Status', render: (k) => <Badge tone={STATUS_TONE[k.status]}>{k.status}</Badge> },
-          { head: 'Aksi', render: (k) => k.can_edit && <div className="flex gap-1.5"><button className="btn" onClick={() => setEdit(k)}>Edit</button><button className="btn text-brand" onClick={async () => { if (confirm(`Hapus KPI "${k.title}"? Tugas yang tertaut tidak ikut terhapus.`)) { await deleteKpiItem(k.id); load() } }}>Hapus</button></div> },
+          { head: 'Aksi', render: (k) => k.can_edit && <div className="flex gap-1.5"><button className="btn" onClick={() => setEdit(k)}>Edit</button><button className="btn text-danger" onClick={async () => { if (confirm(`Hapus KPI "${k.title}"? Tugas yang tertaut tidak ikut terhapus.`)) { await deleteKpiItem(k.id); load() } }}>Hapus</button></div> },
         ]} />
       {edit && <ItemForm initial={edit} period={period} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load() }} />}
     </>
@@ -204,7 +205,7 @@ function ItemForm({ initial, period, onClose, onSaved }: { initial: Partial<KpiI
     <Modal open onClose={onClose} title={editing ? 'Ubah KPI Karyawan' : 'Assign KPI Karyawan'}>
       <div className="space-y-3 text-xs">
         <label className="block font-semibold">Karyawan
-          <select className="input w-full mt-1 disabled:bg-gray-100" disabled={editing} value={f.employee_id || ''} onChange={(e) => setF({ ...f, employee_id: Number(e.target.value), dept_kpi_id: 0 })}>
+          <select className="input w-full mt-1 disabled:bg-tint" disabled={editing} value={f.employee_id || ''} onChange={(e) => setF({ ...f, employee_id: Number(e.target.value), dept_kpi_id: 0 })}>
             <option value="">— Pilih karyawan —</option>{people.map((p) => <option key={p.id} value={p.id}>{p.name}{p.unit_name ? ` — ${p.unit_name}` : ''}</option>)}
             {editing && !people.some((p) => p.id === f.employee_id) && <option value={f.employee_id}>{initial.employee_name}</option>}
           </select></label>
@@ -215,13 +216,13 @@ function ItemForm({ initial, period, onClose, onSaved }: { initial: Partial<KpiI
             <label key={v} className={`flex gap-2 items-start border rounded-lg p-2 mb-1.5 cursor-pointer ${f.metric === v ? 'border-brand bg-brand-soft' : 'border-line'}`}><input type="radio" className="mt-0.5" checked={f.metric === v} onChange={() => setF({ ...f, metric: v, unit: v === 'tasks_on_time' && f.unit === '%' ? 'tugas' : f.unit })} /><span><b>{t}</b><div className="text-muted">{d}</div></span></label>
           ))}
         </div>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <label className="block font-semibold">Target<input className="input w-full mt-1" type="number" step="any" value={f.target} onChange={(e) => setF({ ...f, target: e.target.value })} /></label>
           <label className="block font-semibold">Satuan<input className="input w-full mt-1" value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })} placeholder="laporan, %, …" /></label>
           <label className="block font-semibold">Bobot (%)<input className="input w-full mt-1" type="number" min={0} max={100} value={f.weight} onChange={(e) => setF({ ...f, weight: e.target.value })} /></label>
         </div>
         {f.metric === 'manual' && (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="block font-semibold">Actual<input className="input w-full mt-1" type="number" step="any" value={f.actual} onChange={(e) => setF({ ...f, actual: e.target.value })} /></label>
             <label className="block font-semibold">Arah<select className="input w-full mt-1" value={f.direction} onChange={(e) => setF({ ...f, direction: e.target.value as 'higher' | 'lower' })}><option value="higher">Lebih besar lebih baik</option><option value="lower">Lebih kecil lebih baik</option></select></label>
           </div>
@@ -229,7 +230,7 @@ function ItemForm({ initial, period, onClose, onSaved }: { initial: Partial<KpiI
         {bizDepts.length > 0 && <label className="block font-semibold">Mendukung objective departemen <span className="font-normal text-muted">(opsional)</span>
           <select className="input w-full mt-1" value={f.dept_kpi_id || ''} onChange={(e) => setF({ ...f, dept_kpi_id: Number(e.target.value) })}><option value="">—</option>{bizDepts.map((d) => <option key={d.id} value={d.id}>{d.unit_name} · {d.objective}</option>)}</select></label>}
         <p className="text-muted">Bobot memengaruhi skor KPI karyawan; kosongkan (0) pada semua item agar dihitung rata-rata biasa.</p>
-        {error && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2">{error}</div>}
+        {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}
         <div className="flex justify-end gap-2"><button className="btn" onClick={onClose}>Batal</button><button className="btn-primary" onClick={submit}>Simpan</button></div>
       </div>
     </Modal>
@@ -266,13 +267,13 @@ function ScorecardTab({ period }: { period: string }) {
   return (
     <>
       <ClosedBanner closed={closed} onReopen={isHR ? reopen : undefined} />
-      {!closed && isHR && <div className="flex items-center justify-between gap-3 bg-gray-50 rounded-lg px-3 py-2 mb-3 text-xs"><span className="text-muted">Periode berjalan: skor dihitung langsung dari data terkini. Periode otomatis ditutup sehari setelah berakhir; HR dapat menutupnya lebih awal.</span><button className="btn" onClick={close}><Lock className="w-3.5 h-3.5 inline mr-1" />Tutup Periode</button></div>}
-      {msg && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2 mb-3 text-xs">{msg}</div>}
-      <div className="grid grid-cols-5 gap-3 mb-3">
+      {!closed && isHR && <div className="flex items-center justify-between gap-3 bg-sunken rounded-lg px-3 py-2 mb-3 text-xs"><span className="text-muted">Periode berjalan: skor dihitung langsung dari data terkini. Periode otomatis ditutup sehari setelah berakhir; HR dapat menutupnya lebih awal.</span><button className="btn" onClick={close}><Lock className="w-3.5 h-3.5 inline mr-1" />Tutup Periode</button></div>}
+      {msg && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2 mb-3 text-xs">{msg}</div>}
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3 mb-3">
         <StatCard label="Rata-rata skor akhir" value={<span style={{ color: scoreColor(sum.average, good, att) }}>{pctText(sum.average)}</span>} />
         <StatCard label="Good" value={<span className="text-ok">{sum.good}</span>} foot={`≥ ${good}%`} />
         <StatCard label="Attention" value={<span className="text-warn">{sum.attention}</span>} foot={`${att}–${good}%`} />
-        <StatCard label="Critical" value={<span className="text-brand">{sum.critical}</span>} foot={`< ${att}%`} />
+        <StatCard label="Critical" value={<span className="text-danger">{sum.critical}</span>} foot={`< ${att}%`} />
         <StatCard label="Belum ada data" value={sum.no_data} />
       </div>
       {settings && <p className="text-xs text-muted mb-2">Skor akhir = KPI <b>{settings.weight_kpi}%</b> + Penyelesaian tugas <b>{settings.weight_task}%</b> + Absensi <b>{settings.weight_attendance}%</b>. Komponen yang belum punya data tidak dihitung (bobot disesuaikan otomatis).</p>}
@@ -294,6 +295,7 @@ function ScorecardTab({ period }: { period: string }) {
 }
 
 function ScoreDetail({ id, period, onClose }: { id: number; period: string; onClose: () => void }) {
+  const tc = useThemeColors()
   const [d, setD] = useState<{ period: string; score: EmpScore; tasks: ScoreTaskRow[]; settings: KpiSettings; closed?: KpiClose | null } | null>(null)
   const [hist, setHist] = useState<KpiHistoryRow[]>([])
   useEffect(() => { getScorecardDetail(id, period).then((r) => setD(r.data)) }, [id, period])
@@ -309,10 +311,10 @@ function ScoreDetail({ id, period, onClose }: { id: number; period: string; onCl
         <div className="flex items-center gap-4 flex-wrap">
           <div className="text-center px-4"><div className="text-4xl font-extrabold" style={{ color: scoreColor(s.final_score, st.good_min, st.attention_min) }}>{pctText(s.final_score)}</div><div className="text-muted">skor akhir · {d.period}</div></div>
           <div className="flex-1 min-w-[220px]"><div className="font-bold text-sm">{s.name}</div><div className="text-muted">{s.unit_name} · {s.nik}</div><div className="mt-1.5 flex gap-1.5">{s.status && <Badge tone={STATUS_TONE[s.status]}>{s.status}</Badge>}{s.rank > 0 && <Badge tone="blue">Peringkat #{s.rank}</Badge>}</div></div>
-          <div className="w-56 h-40"><ResponsiveContainer width="100%" height="100%"><RadarChart data={radar} outerRadius="70%"><PolarGrid /><PolarAngleAxis dataKey="komponen" tick={{ fontSize: 11 }} /><PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} /><Radar name="Target" dataKey="target" stroke="#c5cad1" fill="#c5cad1" fillOpacity={0.25} /><Radar name="Skor" dataKey="skor" stroke="#d84a4a" fill="#d84a4a" fillOpacity={0.35} /></RadarChart></ResponsiveContainer></div>
+          <div className="w-56 h-40"><ResponsiveContainer width="100%" height="100%"><RadarChart data={radar} outerRadius="70%"><PolarGrid stroke={tc.line} /><PolarAngleAxis dataKey="komponen" tick={{ fontSize: 11 }} /><PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} /><Radar name="Target" dataKey="target" stroke={tc.muted} fill={tc.muted} fillOpacity={0.25} /><Radar name="Skor" dataKey="skor" stroke={tc.brand} fill={tc.brand} fillOpacity={0.35} /></RadarChart></ResponsiveContainer></div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {comps.map((c) => (
             <div key={c.name} className="border border-line rounded-lg p-3">
               <div className="flex items-center justify-between"><b>{c.name}</b><span className="text-muted">bobot {c.w}%</span></div>
@@ -326,7 +328,7 @@ function ScoreDetail({ id, period, onClose }: { id: number; period: string; onCl
         {hist.length > 0 && (
           <div>
             <div className="font-bold mb-1.5">Riwayat skor akhir <span className="font-normal text-muted">({period.includes('Q') ? 'kuartal' : 'bulan'} yang sudah ditutup)</span></div>
-            <div className="h-36 border border-line rounded-lg p-2"><ResponsiveContainer width="100%" height="100%"><LineChart data={hist.map((h) => ({ periode: h.label, skor: h.final_score }))} margin={{ left: -20, right: 10, top: 5 }}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="periode" tick={{ fontSize: 10 }} interval={0} /><YAxis domain={[0, 120]} tick={{ fontSize: 10 }} /><Tooltip /><Line type="monotone" dataKey="skor" stroke="#d84a4a" strokeWidth={2} dot /></LineChart></ResponsiveContainer></div>
+            <div className="h-36 border border-line rounded-lg p-2"><ResponsiveContainer width="100%" height="100%"><LineChart data={hist.map((h) => ({ periode: h.label, skor: h.final_score }))} margin={{ left: -20, right: 10, top: 5 }}><CartesianGrid strokeDasharray="3 3" stroke={tc.line} /><XAxis dataKey="periode" tick={{ fontSize: 10, fill: tc.muted }} interval={0} /><YAxis domain={[0, 120]} tick={{ fontSize: 10, fill: tc.muted }} /><Tooltip contentStyle={{ background: tc.panel, borderColor: tc.line, color: tc.ink }} /><Line type="monotone" dataKey="skor" stroke={tc.brand} strokeWidth={2} dot /></LineChart></ResponsiveContainer></div>
           </div>
         )}
 
@@ -348,8 +350,8 @@ function ScoreDetail({ id, period, onClose }: { id: number; period: string; onCl
           ) : <p className="text-muted">Tidak ada tugas dengan deadline pada periode ini.</p>}
         </div>
 
-        <div className="grid grid-cols-5 gap-2 text-center">
-          {[['Hari wajib hadir', s.attendance.required], ['Hadir', s.attendance.present], ['Terlambat', s.attendance.late], ['Tidak hadir', s.attendance.absent], ['Cuti / izin / sakit', s.attendance.leave]].map(([l, v]) => <div key={l as string} className="bg-gray-50 rounded-lg py-2"><div className="text-lg font-extrabold">{v}</div><div className="text-[10.5px] text-muted">{l}</div></div>)}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">
+          {[['Hari wajib hadir', s.attendance.required], ['Hadir', s.attendance.present], ['Terlambat', s.attendance.late], ['Tidak hadir', s.attendance.absent], ['Cuti / izin / sakit', s.attendance.leave]].map(([l, v]) => <div key={l as string} className="bg-sunken rounded-lg py-2"><div className="text-lg font-extrabold">{v}</div><div className="text-[10.5px] text-muted">{l}</div></div>)}
         </div>
       </div>
     </Modal>

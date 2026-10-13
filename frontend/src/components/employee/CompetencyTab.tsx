@@ -58,7 +58,7 @@ export default function CompetencyTab({ empId, canEdit }: { empId: number; canEd
                 <td className="td text-muted">{c.note || '-'}</td>
                 <td className="td whitespace-nowrap">{canEdit && <>
                   <button className="btn mr-1" title="Ubah" onClick={() => edit(c)}><Pencil className="w-3.5 h-3.5" /></button>
-                  <button className="btn text-brand" title="Hapus" onClick={() => remove(c)}><Trash2 className="w-3.5 h-3.5" /></button>
+                  <button className="btn text-danger" title="Hapus" onClick={() => remove(c)}><Trash2 className="w-3.5 h-3.5" /></button>
                 </>}</td>
               </tr>
             ))}
@@ -70,18 +70,18 @@ export default function CompetencyTab({ empId, canEdit }: { empId: number; canEd
       <Modal open={!!draft} onClose={() => setDraft(null)} title={draft?.id ? 'Ubah Kompetensi' : 'Tambah Kompetensi'}>
         {draft && (
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block font-semibold">Jenis<select className="input w-full mt-1 font-normal" value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value })}>{KINDS.map((k) => <option key={k}>{k}</option>)}</select></label>
               <label className="block font-semibold">Nama<input className="input w-full mt-1 font-normal" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="mis. S1 Teknik Informatika" /></label>
             </div>
             <label className="block font-semibold">Institusi / penyelenggara<input className="input w-full mt-1 font-normal" value={draft.institution} onChange={(e) => setDraft({ ...draft, institution: e.target.value })} /></label>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <label className="block font-semibold">Tahun mulai<input className="input w-full mt-1 font-normal" type="number" min={1950} max={2100} value={draft.start_year} onChange={(e) => setDraft({ ...draft, start_year: e.target.value })} /></label>
               <label className="block font-semibold">Tahun selesai<input className="input w-full mt-1 font-normal" type="number" min={1950} max={2100} value={draft.end_year} onChange={(e) => setDraft({ ...draft, end_year: e.target.value })} placeholder="kosong = berjalan" /></label>
               <label className="block font-semibold">No. sertifikat<input className="input w-full mt-1 font-normal" value={draft.cert_no} onChange={(e) => setDraft({ ...draft, cert_no: e.target.value })} /></label>
             </div>
             <label className="block font-semibold">Catatan<textarea className="input w-full mt-1 font-normal" rows={2} value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value })} /></label>
-            {error && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2">{error}</div>}
+            {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}
             <div className="flex justify-end gap-2"><button className="btn" onClick={() => setDraft(null)}>Batal</button><button className="btn-primary" disabled={busy} onClick={save}>{busy ? 'Menyimpan…' : 'Simpan'}</button></div>
           </div>
         )}

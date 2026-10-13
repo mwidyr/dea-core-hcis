@@ -5,7 +5,7 @@ import type { DevAccount, User } from '../types'
 
 export const ROLE_LABEL: Record<User['role'], string> = { super_admin: 'Super Admin', hr_admin: 'HR Admin', manager: 'Manager', employee: 'Karyawan' }
 const ROLE_ORDER: User['role'][] = ['super_admin', 'hr_admin', 'manager', 'employee']
-const TONE: Record<User['role'], string> = { super_admin: 'bg-brand-soft text-brand', hr_admin: 'bg-violet-soft text-violet', manager: 'bg-info-soft text-info', employee: 'bg-gray-100 text-gray-600' }
+const TONE: Record<User['role'], string> = { super_admin: 'bg-danger-soft text-danger', hr_admin: 'bg-violet-soft text-violet', manager: 'bg-info-soft text-info', employee: 'bg-tint text-ink/80' }
 const initials = (n: string) => n.split(/\s+/).slice(0, 2).map((x) => x[0]).join('').toUpperCase()
 
 // Loads the quick-login accounts. Resolves to null when the backend does not offer them (DEV_LOGIN off) —
@@ -30,14 +30,14 @@ export default function DevAccountPicker({ accounts, onPick, busyId, error }: { 
         <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
         <input className="input w-full !pl-8" placeholder="Cari nama, NIK, jabatan…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
-      {error && <div className="text-xs text-brand bg-brand-soft rounded-lg px-3 py-2 mb-2">{error}</div>}
+      {error && <div className="text-xs text-danger bg-danger-soft rounded-lg px-3 py-2 mb-2">{error}</div>}
       <div className="max-h-[420px] overflow-auto space-y-3 pr-1">
         {ROLE_ORDER.map((role) => {
           const list = filtered.filter((a) => a.role === role)
           if (!list.length) return null
           return (
             <div key={role}>
-              <div className="text-[10px] font-extrabold tracking-widest uppercase text-gray-400 mb-1">{ROLE_LABEL[role]} ({list.length})</div>
+              <div className="text-[10px] font-extrabold tracking-widest uppercase text-muted mb-1">{ROLE_LABEL[role]} ({list.length})</div>
               <div className="space-y-1">
                 {list.map((a) => (
                   <button key={a.id} type="button" disabled={busyId !== null} onClick={() => onPick(a)}

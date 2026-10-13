@@ -23,8 +23,8 @@ export default function RecurringTasks() {
   useEffect(() => { load() }, [])
   return (
     <>
-      <div className="bg-gray-50 rounded-lg p-3 mb-3 text-xs text-muted">
-        <b className="text-gray-800">Tugas rutin</b> adalah template yang membuat tugas biasa secara otomatis (harian, mingguan, atau bulanan) lengkap dengan PIC, deadline, dan approval. Isi <i>Tautkan ke KPI</i> dengan judul KPI otomatis PIC agar tiap tugas yang dibuat langsung terhitung di KPI periode itu.
+      <div className="bg-sunken rounded-lg p-3 mb-3 text-xs text-muted">
+        <b className="text-ink">Tugas rutin</b> adalah template yang membuat tugas biasa secara otomatis (harian, mingguan, atau bulanan) lengkap dengan PIC, deadline, dan approval. Isi <i>Tautkan ke KPI</i> dengan judul KPI otomatis PIC agar tiap tugas yang dibuat langsung terhitung di KPI periode itu.
       </div>
       <DataTable data={rows} rowKey={(r) => r.id} searchPlaceholder="Cari tugas rutin atau PIC…" searchText={(r) => `${r.title} ${r.pic_name}`} empty="Belum ada tugas rutin"
         actions={<button className="btn-primary" onClick={() => setEdit({ frequency: 'weekly', weekday: 1, day_of_month: 1, due_after_days: 2, priority: 'normal', requires_approval: true, approval_levels: 1, active: true, start_date: ymd(new Date()) })}><Plus className="w-3.5 h-3.5 inline mr-1" />Tugas Rutin</button>}
@@ -40,7 +40,7 @@ export default function RecurringTasks() {
             <div className="flex gap-1.5">
               <button className="btn" onClick={() => setEdit(r)}>Edit</button>
               <button className="btn" onClick={async () => { await updateRecurringTask(r.id, { ...r, start_date: r.start_date.slice(0, 10), end_date: r.end_date?.slice(0, 10) ?? '', active: !r.active }); load() }}>{r.active ? 'Jeda' : 'Aktifkan'}</button>
-              <button className="btn text-brand" onClick={async () => { if (confirm(`Hapus tugas rutin "${r.title}"? Tugas yang sudah dibuat tetap ada.`)) { await deleteRecurringTask(r.id); load() } }}>Hapus</button>
+              <button className="btn text-danger" onClick={async () => { if (confirm(`Hapus tugas rutin "${r.title}"? Tugas yang sudah dibuat tetap ada.`)) { await deleteRecurringTask(r.id); load() } }}>Hapus</button>
             </div>) },
         ]} />
       {edit && <RecurringForm initial={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load() }} />}
@@ -59,11 +59,12 @@ function RecurringForm({ initial, onClose, onSaved }: { initial: Partial<Recurri
   })
   const [assignees, setAssignees] = useState<Assignee[]>([])
   const [approvers, setApprovers] = useState<Person[]>([])
+  const [maxLevels, setMaxLevels] = useState(3) // superiors the PIC has: approval can climb up to the top
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }))
   useEffect(() => { getTaskAssignees().then((r) => setAssignees(r.data)) }, [])
-  useEffect(() => { if (f.pic_id) getApprovers(f.pic_id).then((r) => setApprovers(r.data.candidates)).catch(() => setApprovers([])) }, [f.pic_id])
+  useEffect(() => { if (f.pic_id) getApprovers(f.pic_id).then((r) => { setApprovers(r.data.candidates); setMaxLevels(Math.max(1, r.data.max_levels ?? 3)) }).catch(() => setApprovers([])) }, [f.pic_id])
   const pic = assignees.find((a) => a.id === f.pic_id)
   const submit = async () => {
     setError('')
@@ -82,7 +83,7 @@ function RecurringForm({ initial, onClose, onSaved }: { initial: Partial<Recurri
       <div className="space-y-4 text-xs">
         <L label="Nama tugas *"><input className="input w-full" value={f.title} onChange={(e) => set('title', e.target.value)} autoFocus /></L>
         <L label="Deskripsi" hint="(opsional)"><textarea className="input w-full" rows={2} value={f.description} onChange={(e) => set('description', e.target.value)} /></L>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <L label="PIC *">
             <select className="input w-full" value={f.pic_id || ''} onChange={(e) => set('pic_id', Number(e.target.value))}>
               <option value="">— Pilih PIC —</option>{assignees.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -91,7 +92,7 @@ function RecurringForm({ initial, onClose, onSaved }: { initial: Partial<Recurri
           </L>
           <L label="Prioritas"><select className="input w-full" value={f.priority} onChange={(e) => set('priority', e.target.value as 'normal' | 'tinggi')}><option value="normal">Normal</option><option value="tinggi">Tinggi</option></select></L>
         </div>
-        <div className="border-t border-line pt-3 grid grid-cols-2 gap-3">
+        <div className="border-t border-line pt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="col-span-2 font-bold">Jadwal</div>
           <L label="Pengulangan">
             <select className="input w-full" value={f.frequency} onChange={(e) => set('frequency', e.target.value as typeof f.frequency)}><option value="daily">Harian (hari kerja Sen–Jum)</option><option value="weekly">Mingguan</option><option value="monthly">Bulanan</option></select>
@@ -109,13 +110,13 @@ function RecurringForm({ initial, onClose, onSaved }: { initial: Partial<Recurri
           <label className="flex items-start gap-2"><input type="checkbox" className="mt-0.5" checked={f.require_result} onChange={(e) => set('require_result', e.target.checked)} /><span><b>Lampiran hasil wajib</b></span></label>
           <label className="flex items-start gap-2"><input type="checkbox" className="mt-0.5" checked={f.requires_approval} onChange={(e) => set('requires_approval', e.target.checked)} /><span><b>Perlu approval penyelesaian</b></span></label>
           {f.requires_approval && (
-            <div className="ml-6 grid grid-cols-2 gap-3 bg-gray-50/70 rounded-lg p-3">
-              <L label="Jenjang atasan PIC"><select className="input w-full" disabled={!!f.approver_user_id} value={f.approval_levels} onChange={(e) => set('approval_levels', Number(e.target.value))}>{[1, 2, 3].map((n) => <option key={n} value={n}>{n} tingkat</option>)}</select></L>
+            <div className="ml-6 grid grid-cols-1 sm:grid-cols-2 gap-3 bg-sunken/70 rounded-lg p-3">
+              <L label="Jenjang atasan PIC"><select className="input w-full" disabled={!!f.approver_user_id} value={f.approval_levels} onChange={(e) => set('approval_levels', Number(e.target.value))}>{Array.from({ length: Math.max(maxLevels, f.approval_levels) }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n} tingkat{n === maxLevels && n > 1 ? ' (sampai atasan tertinggi)' : ''}</option>)}</select></L>
               <L label="Approver" hint="(opsional)"><select className="input w-full" value={f.approver_user_id || ''} onChange={(e) => set('approver_user_id', Number(e.target.value))}><option value="">Atasan PIC (n+1)</option>{approvers.map((a) => <option key={a.user_id} value={a.user_id}>{a.name} ({a.role})</option>)}</select></L>
             </div>
           )}
         </div>
-        {error && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2">{error}</div>}
+        {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}
         <div className="flex justify-end gap-2"><button className="btn" onClick={onClose}>Batal</button><button className="btn-primary" disabled={busy} onClick={submit}>{busy ? 'Menyimpan…' : 'Simpan'}</button></div>
       </div>
     </Modal>

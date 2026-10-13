@@ -13,6 +13,7 @@ import (
 
 	"github.com/dea-core/hcis/backend/internal/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const (
@@ -58,7 +59,39 @@ type SubmitInput struct {
 var (
 	ErrNotPending = errors.New("pengajuan sudah diproses")
 	ErrNotAllowed = errors.New("Anda bukan approver untuk pengajuan ini")
+	// ErrSelfApproval: nobody (super admin included) may decide a request they filed themselves.
+	ErrSelfApproval = errors.New("Anda tidak dapat menyetujui atau menolak pengajuan Anda sendiri")
+	ErrBadApprover  = errors.New("approver yang dipilih tidak valid (harus manager, HR, atau admin yang aktif dan bukan pemohon)")
 )
+
+// approverRoles may be picked as an assigned approver (same list the request forms offer).
+var approverRoles = map[string]bool{"manager": true, "hr_admin": true, "super_admin": true}
+
+// MayDecide is the single rule for "can this user decide the current step?".
+// The step's approver may; a super admin may act on any step; but the requester never may,
+// whether identified by user account or by the employee record the request was filed for.
+func MayDecide(stepApprover, actor uint, actorRole string, requesterUser uint, requesterEmp, actorEmp *uint) error {
+	if actor == requesterUser || (requesterEmp != nil && actorEmp != nil && *requesterEmp == *actorEmp) {
+		return ErrSelfApproval
+	}
+	if stepApprover != actor && actorRole != "super_admin" {
+		return ErrNotAllowed
+	}
+	return nil
+}
+
+func employeeOfUser(tx *gorm.DB, userID uint) *uint {
+	var u models.User
+	if tx.Select("id", "employee_id").Limit(1).Find(&u, userID).Error == nil && u.ID != 0 {
+		return u.EmployeeID
+	}
+	return nil
+}
+
+// IsRequester tells whether userID is the person the request was filed by / for.
+func IsRequester(tx *gorm.DB, req *models.ApprovalRequest, userID uint) bool {
+	return MayDecide(0, userID, "super_admin", req.RequesterUserID, req.RequesterEmployeeID, employeeOfUser(tx, userID)) == ErrSelfApproval
+}
 
 func userOfEmployee(tx *gorm.DB, empID uint) uint {
 	var u models.User
@@ -116,6 +149,12 @@ func Preview(tx *gorm.DB, in SubmitInput) []uint {
 }
 
 func Submit(tx *gorm.DB, in SubmitInput) (*models.ApprovalRequest, error) {
+	if in.AssignedUserID != nil { // an assigned approver replaces the whole chain, so it must be a real approver
+		var u models.User
+		if tx.Select("id", "role", "is_active").Limit(1).Find(&u, *in.AssignedUserID).Error != nil || u.ID == 0 || !u.IsActive || !approverRoles[u.Role] || u.ID == in.RequesterUserID {
+			return nil, ErrBadApprover
+		}
+	}
 	steps := chain(tx, in)
 	if len(steps) == 0 {
 		return nil, errors.New("tidak ada approver yang dapat ditentukan")
@@ -138,9 +177,13 @@ func Submit(tx *gorm.DB, in SubmitInput) (*models.ApprovalRequest, error) {
 	return req, nil
 }
 
-// Act records a decision by userID (super admins may act on any pending step).
+// Act records a decision by userID (super admins may act on any pending step, but never on their own request).
 func Act(tx *gorm.DB, reqID, userID uint, role string, approve bool, note string) (*models.ApprovalRequest, error) {
 	var req models.ApprovalRequest
+	// lock the request row: two approvers acting at once must not both finish the last step (double hook run)
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&req, reqID).Error; err != nil {
+		return nil, errors.New("pengajuan tidak ditemukan")
+	}
 	if err := tx.Preload("Steps").First(&req, reqID).Error; err != nil {
 		return nil, errors.New("pengajuan tidak ditemukan")
 	}
@@ -153,8 +196,11 @@ func Act(tx *gorm.DB, reqID, userID uint, role string, approve bool, note string
 			cur = &req.Steps[i]
 		}
 	}
-	if cur == nil || (cur.ApproverUserID != userID && role != "super_admin") {
+	if cur == nil {
 		return nil, ErrNotAllowed
+	}
+	if err := MayDecide(cur.ApproverUserID, userID, role, req.RequesterUserID, req.RequesterEmployeeID, employeeOfUser(tx, userID)); err != nil {
+		return nil, err
 	}
 	now := time.Now()
 	cur.ActedByUserID, cur.ActedAt, cur.Note = &userID, &now, note

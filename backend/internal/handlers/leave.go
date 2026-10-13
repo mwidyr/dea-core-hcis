@@ -194,7 +194,9 @@ func leaveHook(tx *gorm.DB, req *models.ApprovalRequest, outcome string) error {
 		if lr.Type != nil && lr.Type.DeductsBalance { // pending reservation becomes used
 			b := getBalance(tx, lr.EmployeeID, day(lr.StartDate).Year())
 			b.Used += lr.Days
-			tx.Save(&b)
+			if err := tx.Save(&b).Error; err != nil { // never mark the leave approved if its balance could not be updated
+				return err
+			}
 		}
 	case approval.Rejected:
 		lr.Status = "Ditolak"
@@ -316,7 +318,8 @@ func ListLeaveRequests(c *gin.Context) {
 		if r.ApprovalID != nil {
 			if w, ok := wait[*r.ApprovalID]; ok {
 				v.WaitingFor = w.Name
-				v.CanDecide = w.ApproverUserID == uid(c) || role(c) == "super_admin"
+				mine := me != nil && *me == r.EmployeeID // never decide your own leave, super admin included
+				v.CanDecide = !mine && (w.ApproverUserID == uid(c) || role(c) == "super_admin")
 			}
 		}
 		own := me != nil && *me == r.EmployeeID

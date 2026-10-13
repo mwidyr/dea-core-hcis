@@ -68,7 +68,7 @@ export default function ContractHistory({ empId, canEdit, onChanged }: { empId: 
             {canEdit && <div className="flex gap-1">
               <button type="button" className="btn" onClick={() => { upTo.current = c.id; fileInput.current?.click() }}><Plus className="w-3 h-3 inline mr-1" />Dokumen</button>
               <button type="button" className="btn" title="Ubah" onClick={() => { setError(''); setDraft({ id: c.id, number: c.number, start: day(c.start_date), end: day(c.end_date), note: c.note }) }}><Pencil className="w-3.5 h-3.5" /></button>
-              <button type="button" className="btn text-brand" title="Hapus" onClick={() => remove(c)}><Trash2 className="w-3.5 h-3.5" /></button>
+              <button type="button" className="btn text-danger" title="Hapus" onClick={() => remove(c)}><Trash2 className="w-3.5 h-3.5" /></button>
             </div>}
           </div>
         )
@@ -80,12 +80,12 @@ export default function ContractHistory({ empId, canEdit, onChanged }: { empId: 
         {draft && (
           <div className="space-y-3 text-xs">
             <label className="block font-semibold">Nomor / referensi kontrak<input className="input w-full mt-1 font-normal" value={draft.number} onChange={(e) => setDraft({ ...draft, number: e.target.value })} placeholder="opsional" /></label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block font-semibold">Mulai<input className="input w-full mt-1 font-normal" type="date" value={draft.start} onChange={(e) => setDraft({ ...draft, start: e.target.value })} /></label>
               <label className="block font-semibold">Berakhir<input className="input w-full mt-1 font-normal" type="date" value={draft.end} onChange={(e) => setDraft({ ...draft, end: e.target.value })} /></label>
             </div>
             <label className="block font-semibold">Catatan<textarea className="input w-full mt-1 font-normal" rows={2} value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value })} /></label>
-            {error && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2">{error}</div>}
+            {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}
             <div className="flex justify-end gap-2"><button className="btn" onClick={() => setDraft(null)}>Batal</button><button className="btn-primary" disabled={busy} onClick={save}>{busy ? 'Menyimpan…' : 'Simpan'}</button></div>
           </div>
         )}

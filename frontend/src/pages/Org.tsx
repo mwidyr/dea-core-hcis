@@ -136,7 +136,7 @@ export default function Org() {
           <div className="space-y-3 text-xs">
             {edit.kind !== 'businesses' && (
               <Field label={bizLocked || edit.data.id ? 'Bisnis (terkunci)' : 'Bisnis'}>
-                <select className="input w-full disabled:bg-gray-100" disabled={bizLocked || !!edit.data.id} value={edit.data.business_id || ''}
+                <select className="input w-full disabled:bg-tint" disabled={bizLocked || !!edit.data.id} value={edit.data.business_id || ''}
                   onChange={(e) => setEdit((x) => x && { ...x, data: { ...x.data, business_id: Number(e.target.value), unit_id: null, parent_id: null, reports_to_id: null } })}>
                   <option value="">— Pilih bisnis —</option>
                   {businesses.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -164,9 +164,9 @@ export default function Org() {
               <Field label="Nama Lokasi"><input className="input w-full" value={edit.data.name} onChange={(e) => f('name', e.target.value)} /></Field>
               <Field label="Jenis"><input className="input w-full" value={edit.data.type_name} onChange={(e) => f('type_name', e.target.value)} /></Field>
               <Field label="Kota"><input className="input w-full" value={edit.data.city} onChange={(e) => f('city', e.target.value)} /></Field>
-              <div className="border border-line rounded-lg p-3 space-y-2 bg-gray-50/60">
+              <div className="border border-line rounded-lg p-3 space-y-2 bg-sunken/60">
                 <div className="font-semibold">Titik absensi GPS</div>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <Field label="Latitude"><input className="input w-full" type="number" step="any" value={edit.data.latitude ?? ''} onChange={(e) => f('latitude', e.target.value === '' ? null : Number(e.target.value))} /></Field>
                   <Field label="Longitude"><input className="input w-full" type="number" step="any" value={edit.data.longitude ?? ''} onChange={(e) => f('longitude', e.target.value === '' ? null : Number(e.target.value))} /></Field>
                   <Field label="Radius (m)"><input className="input w-full" type="number" min={20} value={edit.data.radius_m ?? 100} onChange={(e) => f('radius_m', Number(e.target.value))} /></Field>
@@ -175,7 +175,7 @@ export default function Org() {
                 <p className="text-muted text-[11px]">Karyawan hanya dapat absen bila berada dalam radius ini dari titik. Buka perangkat di lokasi kerja lalu klik tombol di atas, atau salin koordinat dari peta.</p>
               </div>
             </>}
-            {error && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2">{error}</div>}
+            {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}
             <div className="flex justify-end gap-2 pt-2"><button className="btn" onClick={() => setEdit(null)}>Batal</button><button className="btn-primary" onClick={submit}>Simpan</button></div>
           </div>
         )}
@@ -186,7 +186,7 @@ export default function Org() {
 
 const Field = ({ label, children }: { label: string; children: React.ReactNode }) => <label className="block font-semibold">{label}<div className="mt-1 font-normal">{children}</div></label>
 const Actions = ({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) => (
-  <div className="flex gap-1.5 justify-end"><button className="btn" onClick={onEdit}>Edit</button><button className="btn text-brand" onClick={onDelete}>Hapus</button></div>
+  <div className="flex gap-1.5 justify-end"><button className="btn" onClick={onEdit}>Edit</button><button className="btn text-danger" onClick={onDelete}>Hapus</button></div>
 )
 function OrgChart({ positions, businesses }: { positions: Position[]; businesses: Business[] }) {
   const [zoom, setZoom] = useState(0.85)
@@ -271,10 +271,10 @@ function BusinessChart({ biz, positions, zoom, resetKey }: { biz: Business; posi
   }))
 
   return (
-    <section className="border border-line rounded-xl overflow-hidden bg-white shadow-card">
+    <section className="border border-line rounded-xl overflow-hidden bg-panel shadow-card">
       <div className="flex items-center justify-between px-4 py-2.5 bg-brand-soft border-b border-line">
         <div className="flex items-center gap-2.5">
-          <span className="w-8 h-8 rounded-lg bg-brand text-white grid place-items-center text-[11px] font-black">{biz.code}</span>
+          <span className="w-8 h-8 rounded-lg bg-brand text-on-brand grid place-items-center text-[11px] font-black">{biz.code}</span>
           <div><div className="text-sm font-extrabold">{biz.name}</div><div className="text-[10.5px] text-muted">Bagan struktur organisasi</div></div>
         </div>
         <div className="flex gap-1.5 text-[10.5px]">
@@ -283,24 +283,24 @@ function BusinessChart({ biz, positions, zoom, resetKey }: { biz: Business; posi
           {vacant > 0 && <Badge tone="amber">{vacant} vacant</Badge>}
         </div>
       </div>
-      <div ref={box} className="overflow-auto bg-gray-50/50 py-3 max-h-[70vh]">
+      <div ref={box} className="overflow-auto bg-sunken/50 py-3 max-h-[70vh]">
         <div className="flex w-max min-w-full" style={{ zoom }}>
           {/* level labels stay visible while scrolling sideways */}
-          <div className="sticky left-0 z-20 shrink-0 bg-white/95 border-r border-line" style={{ width: GUTTER, height }}>
+          <div className="sticky left-0 z-20 shrink-0 bg-panel/95 border-r border-line" style={{ width: GUTTER, height }}>
             {rows.map((r, i) => (
               <div key={r} className="absolute left-0 right-0 px-3 flex items-center text-[10.5px] font-bold text-muted leading-tight" style={{ top: top(i), height: NODE_H }}>{r}</div>
             ))}
           </div>
           <div className="relative" style={{ width, height }}>
             <svg className="absolute inset-0 pointer-events-none" width={width} height={height}>
-              {rows.map((_, i) => <line key={i} x1={0} x2={width} y1={top(i) + NODE_H / 2} y2={top(i) + NODE_H / 2} stroke="#d9dce1" strokeDasharray="4 5" />)}
-              {links.map((d, i) => <path key={i} d={d} fill="none" stroke="#c5cad1" strokeWidth={1.2} strokeLinejoin="round" />)}
+              {rows.map((_, i) => <line key={i} x1={0} x2={width} y1={top(i) + NODE_H / 2} y2={top(i) + NODE_H / 2} className="stroke-line" strokeDasharray="4 5" />)}
+              {links.map((d, i) => <path key={i} d={d} fill="none" className="stroke-muted/40" strokeWidth={1.2} strokeLinejoin="round" />)}
             </svg>
             {[...placed.values()].map(({ p, x, row }) => (
               <div key={p.id} className="org-node !block !max-w-none text-center overflow-hidden" style={{ position: 'absolute', left: cx(x) - NODE_W / 2, top: top(row), width: NODE_W, height: NODE_H }}>
                 <div className="text-xs font-bold leading-tight line-clamp-2">{p.title}</div>
                 <div className={`text-[10.5px] mt-0.5 truncate ${p.holder === 'Vacant' ? 'text-warn font-semibold' : 'text-muted'}`}>{p.holder}</div>
-                <div className="text-[9.5px] text-gray-400 truncate">{p.unit?.name}</div>
+                <div className="text-[9.5px] text-muted truncate">{p.unit?.name}</div>
               </div>
             ))}
           </div>

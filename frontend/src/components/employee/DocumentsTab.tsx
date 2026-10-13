@@ -60,10 +60,10 @@ export default function DocumentsTab({ empId, canEdit, onChanged }: { empId: num
               <option value={0}>Tidak terkait kontrak</option>
               {contracts.map((c, i) => <option key={c.id} value={c.id}>Kontrak ke-{contracts.length - i} · {fmt(c.start_date)}{c.number ? ` · ${c.number}` : ''}</option>)}
             </select>
-            <input key={fileKey} className="input flex-1 min-w-[12rem] file:mr-2 file:border-0 file:bg-gray-100 file:rounded file:px-2 file:py-1" type="file" multiple accept="image/*,application/pdf" onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
+            <input key={fileKey} className="input flex-1 min-w-[12rem] file:mr-2 file:border-0 file:bg-tint file:rounded file:px-2 file:py-1" type="file" multiple accept="image/*,application/pdf" onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
             <button type="button" className="btn-primary" disabled={busy} onClick={upload}><Upload className="w-3.5 h-3.5 inline mr-1" />{busy ? 'Mengunggah…' : 'Unggah'}</button>
           </div>
-          {error && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2 mt-2">{error}</div>}
+          {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2 mt-2">{error}</div>}
         </div>
       )}
       <DocGallery empId={empId} docs={docs} onDelete={canEdit ? remove : undefined} labelOf={(d) => (d.contract_id ? `${d.label} · ${contractName(d.contract_id)}` : d.label)} />

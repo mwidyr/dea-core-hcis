@@ -9,7 +9,7 @@ export default function Placeholder() {
   return (
     <Layout title={item?.label ?? 'Halaman'} subtitle="Modul belum tersedia">
       <div className="card p-8 text-center text-sm text-muted">
-        Modul <b className="text-gray-800">{item?.label}</b> dijadwalkan pada <b>Phase {item?.phase}</b>.
+        Modul <b className="text-ink">{item?.label}</b> dijadwalkan pada <b>Phase {item?.phase}</b>.
       </div>
     </Layout>
   )

@@ -72,7 +72,7 @@ export default function Employees() {
 
   return (
     <Layout title="Karyawan" subtitle="Employee Management 360">
-      <div className="grid grid-cols-5 gap-3 mb-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3 mb-3">
         <StatCard label="Karyawan Aktif" value={stats.active} />
         <StatCard label="Tetap" value={stats.tetap} />
         <StatCard label="Kontrak" value={stats.kontrak} />
@@ -102,7 +102,7 @@ export default function Employees() {
                 const dl = daysLeft(e.contract_end)
                 const extra = e.placements?.filter((p) => !p.is_primary) ?? []
                 return (
-                  <tr key={e.id} className={e.status !== 'Aktif' ? 'bg-gray-50/70 text-gray-500' : ''}>
+                  <tr key={e.id} className={e.status !== 'Aktif' ? 'bg-sunken/70 text-muted' : ''}>
                     <td className="td"><b>{e.name}</b>{e.nik && <div className="text-muted text-[11px]">{e.nik}</div>}</td>
                     <td className="td">{e.business?.name}</td>
                     <td className="td">{e.position?.title ?? '-'}</td>
@@ -116,7 +116,7 @@ export default function Employees() {
                       {canEdit && <>
                         <button className="btn mr-1" onClick={() => nav(`/employees/${e.id}`)}>Edit</button>
                         <button className="btn mr-1" onClick={() => setStatusEdit({ emp: e, status: e.status, note: e.status_note ?? '' })}>Status</button>
-                        <button className="btn text-brand" title="Hapus" onClick={() => remove(e)}><Trash2 className="w-3.5 h-3.5" /></button>
+                        <button className="btn text-danger" title="Hapus" onClick={() => remove(e)}><Trash2 className="w-3.5 h-3.5" /></button>
                       </>}
                     </td>
                   </tr>
@@ -133,7 +133,7 @@ export default function Employees() {
       <Modal open={!!detail} onClose={() => setDetail(null)} title={detail?.name ?? ''}>
         {detail && (
           <div className="space-y-4">
-            <dl className="grid grid-cols-2 gap-3 text-xs">
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
               {[['Bisnis', detail.business?.name], ['Unit', detail.unit?.name], ['Jabatan', detail.position?.title], ['Lokasi', detail.location?.name],
                 ['NIK', detail.nik], ['Email', detail.email], ['Telepon', detail.phone], ['Tempat, Tgl Lahir', detail.birth_place || detail.birth_date ? `${detail.birth_place || '-'}, ${fmt(detail.birth_date)}` : '-'],
                 ['Jenis', detail.employee_type], ['Tanggal Masuk', fmt(detail.join_date)], ['Kontrak Berakhir', fmt(detail.contract_end)],
@@ -153,7 +153,7 @@ export default function Employees() {
             <div className="flex gap-2">
               {STATUSES.map((s) => (
                 <button key={s} onClick={() => setStatusEdit({ ...statusEdit, status: s })}
-                  className={`flex-1 border rounded-lg py-2 font-semibold ${statusEdit.status === s ? 'border-brand bg-brand-soft text-brand' : 'border-line hover:bg-gray-50'}`}>{s}</button>
+                  className={`flex-1 border rounded-lg py-2 font-semibold ${statusEdit.status === s ? 'border-brand bg-brand-soft text-brand' : 'border-line hover:bg-sunken'}`}>{s}</button>
               ))}
             </div>
             <label className="block font-semibold">Catatan / alasan<textarea className="input w-full mt-1" rows={3} value={statusEdit.note} onChange={(e) => setStatusEdit({ ...statusEdit, note: e.target.value })} placeholder="mis. resign 30/09, suspend sampai investigasi selesai…" /></label>

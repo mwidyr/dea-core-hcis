@@ -85,6 +85,11 @@ func ListEmployees(c *gin.Context) {
 		Preload("Placements.Position").Preload("Placements.Business").
 		Preload("Contracts", func(db *gorm.DB) *gorm.DB { return db.Order("start_date DESC, id DESC") }).
 		Order(employeeOrder(c.Query("sort"), c.Query("dir"))).Limit(size).Offset((page - 1) * size).Find(&l)
+	ptrs := make([]*models.Employee, len(l))
+	for i := range l {
+		ptrs[i] = &l[i]
+	}
+	fillRosters(ptrs)
 	c.JSON(http.StatusOK, gin.H{"data": l, "total": total, "page": page, "page_size": size,
 		"stats": gin.H{"active": active, "tetap": tetap, "kontrak": kontrak, "freelance": freelance, "multi": multi, "expiring": expiring}})
 }
@@ -121,6 +126,7 @@ func GetEmployee(c *gin.Context) {
 		return
 	}
 	fillDOH(&e)
+	fillRosters([]*models.Employee{&e})
 	c.JSON(http.StatusOK, e)
 }
 

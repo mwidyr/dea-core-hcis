@@ -10,8 +10,9 @@ import (
 
 // ---- progress & status of tasks ----
 //
-//   leaf task          → 100% when done, otherwise 0%
-//   parent (has kids)  → average of its children's progress (4 sub-tasks, 1 done → 25%), applied recursively
+//   leaf task          → 100% when done, otherwise its manual progress (0–100)
+//   parent (has kids)  → weighted average of its children's progress, applied recursively: by each sub task's
+//                        weight ("bobot") when every sibling has one, else equally (4 sub-tasks, 1 done → 25%)
 //   parent status      → derived from the progress (never set by hand)
 //   project            → weighted average of its top-level tasks when every one has a weight ("bobot"),
 //                        otherwise a plain average
@@ -46,12 +47,13 @@ func (c *taskCalc) progress(id uint) float64 {
 	}
 	var p float64
 	if ks := c.kids[id]; len(ks) > 0 {
-		for _, k := range ks {
-			p += c.progress(k)
+		for k, share := range c.sharesOf(ks) {
+			p += share * c.progress(k)
 		}
-		p /= float64(len(ks))
-	} else if c.tasks[id].Status == "done" {
+	} else if t := c.tasks[id]; t.Status == "done" {
 		p = 100
+	} else {
+		p = math.Max(0, math.Min(100, float64(t.ProgressPct)))
 	}
 	p = math.Round(p*10) / 10
 	c.prog[id] = p
@@ -138,7 +140,10 @@ func (c *taskCalc) topLevel(projectID uint) []uint {
 }
 
 // topShares: each top-level task's share of the project (sums to 1) — by weight if all are weighted, else equal.
-func (c *taskCalc) topShares(top []uint) map[uint]float64 {
+func (c *taskCalc) topShares(top []uint) map[uint]float64 { return c.sharesOf(top) }
+
+// sharesOf: each sibling's share among its siblings (sums to 1) — by weight if all are weighted, else equal.
+func (c *taskCalc) sharesOf(top []uint) map[uint]float64 {
 	out := map[uint]float64{}
 	if len(top) == 0 {
 		return out
@@ -180,7 +185,7 @@ func (c *taskCalc) projectProgress(projectID uint) (progress float64, top int, w
 	return math.Round(progress*10) / 10, len(ids), weighted
 }
 
-// leafShare = a leaf's share of the whole project: its top-level share split equally down the tree.
+// leafShare = a leaf's share of the whole project: its top-level share split down the tree by sibling weights (equally when unweighted).
 func (c *taskCalc) leafShares(projectID uint) map[uint]float64 {
 	out := map[uint]float64{}
 	var walk func(id uint, share float64)
@@ -190,8 +195,8 @@ func (c *taskCalc) leafShares(projectID uint) map[uint]float64 {
 			out[id] = share
 			return
 		}
-		for _, k := range ks {
-			walk(k, share/float64(len(ks)))
+		for k, sh := range c.sharesOf(ks) {
+			walk(k, share*sh)
 		}
 	}
 	top := c.topLevel(projectID)

@@ -44,13 +44,13 @@ export function ProjectForm({ project, onClose, onSaved }: { project?: Project; 
           </select>
           {owner && <span className="font-normal text-muted">Proyek mengikuti bisnis penanggung jawab.</span>}
         </label>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="block font-semibold">Mulai<div className="mt-1 font-normal"><DateField value={f.start_date} businessId={owner?.business_id ?? project?.business_id ?? 0} onChange={(v) => setF({ ...f, start_date: v, end_date: f.end_date && f.end_date < v ? v : f.end_date })} /></div></label>
           <label className="block font-semibold">Selesai<div className="mt-1 font-normal"><DateField value={f.end_date} min={f.start_date || undefined} businessId={owner?.business_id ?? project?.business_id ?? 0} onChange={(v) => setF({ ...f, end_date: v })} /></div></label>
         </div>
         <p className="text-muted">Tanggal mulai & selesai diperlukan untuk Kurva-S.</p>
         {project && <label className="block font-semibold">Status<select className="input w-full mt-1" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value as Project['status'] })}>{['Aktif', 'Ditunda', 'Selesai', 'Dibatalkan'].map((s) => <option key={s}>{s}</option>)}</select></label>}
-        {error && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2">{error}</div>}
+        {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}
         <div className="flex justify-end gap-2"><button className="btn" onClick={onClose}>Batal</button><button className="btn-primary" disabled={busy} onClick={submit}>{busy ? 'Menyimpan…' : 'Simpan'}</button></div>
       </div>
     </Modal>
@@ -69,7 +69,7 @@ export default function Projects() {
   useEffect(() => { load() }, [businessId, status])
   return (
     <Layout title="Proyek" subtitle="Monitoring proyek berbasis WBS: tugas bertingkat, bobot pekerjaan, timeline Gantt, Kurva-S, dan dokumen">
-      <div className="grid grid-cols-4 gap-3 mb-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
         <StatCard label="Proyek" value={sum.projects ?? 0} /><StatCard label="Induk Tugas" value={sum.parents ?? 0} foot="tahapan teratas" />
         <StatCard label="Sub Tugas" value={sum.subtasks ?? 0} foot="detail pekerjaan" /><StatCard label="Open Task" value={sum.open ?? 0} foot={`${sum.done ?? 0} selesai`} />
       </div>

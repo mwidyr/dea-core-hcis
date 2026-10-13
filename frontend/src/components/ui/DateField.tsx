@@ -103,13 +103,13 @@ export default function DateField({ value, onChange, min, max, businessId = 0, p
         <span className={value ? '' : 'text-muted'}>{value ? show(value) : placeholder}</span><Calendar className="w-3.5 h-3.5 text-muted" />
       </button>
       {open && createPortal(
-        <div ref={pop} style={{ position: 'fixed', top: pos.top, left: pos.left, zIndex: 70, width: 284 }} className="bg-white border border-line rounded-xl shadow-2xl p-3 text-xs">
+        <div ref={pop} style={{ position: 'fixed', top: pos.top, left: pos.left, zIndex: 70, width: 284 }} className="bg-panel border border-line rounded-xl shadow-2xl p-3 text-xs">
           <div className="flex items-center justify-between mb-2">
-            <button type="button" className="p-1 rounded hover:bg-gray-100" onClick={() => shift(-1)} title="Bulan sebelumnya"><ChevronLeft className="w-4 h-4" /></button>
+            <button type="button" className="p-1 rounded hover:bg-tint" onClick={() => shift(-1)} title="Bulan sebelumnya"><ChevronLeft className="w-4 h-4" /></button>
             <div className="font-bold">{MONTHS[view.m]} {view.y}</div>
-            <button type="button" className="p-1 rounded hover:bg-gray-100" onClick={() => shift(1)} title="Bulan berikutnya"><ChevronRight className="w-4 h-4" /></button>
+            <button type="button" className="p-1 rounded hover:bg-tint" onClick={() => shift(1)} title="Bulan berikutnya"><ChevronRight className="w-4 h-4" /></button>
           </div>
-          <div className="grid grid-cols-7 text-center text-[10px] font-bold text-muted mb-1">{DOW.map((d, i) => <div key={d} className={i >= 5 ? 'text-brand' : ''}>{d}</div>)}</div>
+          <div className="grid grid-cols-7 text-center text-[10px] font-bold text-muted mb-1">{DOW.map((d, i) => <div key={d} className={i >= 5 ? 'text-danger' : ''}>{d}</div>)}</div>
           <div className="grid grid-cols-7 gap-0.5">
             {cells.map((d, i) => {
               if (!d) return <div key={`b${i}`} />
@@ -119,16 +119,16 @@ export default function DateField({ value, onChange, min, max, businessId = 0, p
               const disabled = (!!min && k < min) || (!!max && k > max)
               const selected = k === value
               let cls = 'h-8 rounded-md grid place-items-center relative '
-              if (selected) cls += 'bg-brand text-white font-bold '
+              if (selected) cls += 'bg-brand text-on-brand font-bold '
               else if (h) cls += (h.deducts_leave ? 'bg-warn-soft text-warn' : 'bg-ok-soft text-ok') + ' font-bold '
-              else if (weekend) cls += 'text-brand/70 '
-              if (!selected && k === todayKey) cls += 'ring-1 ring-gray-400 '
-              cls += disabled ? 'opacity-30 cursor-not-allowed' : selected ? '' : 'hover:bg-gray-100 cursor-pointer'
+              else if (weekend) cls += 'text-danger/70 '
+              if (!selected && k === todayKey) cls += 'ring-1 ring-muted '
+              cls += disabled ? 'opacity-30 cursor-not-allowed' : selected ? '' : 'hover:bg-tint cursor-pointer'
               return (
                 <button type="button" key={k} disabled={disabled} className={cls} data-date={k} data-holiday={h ? (h.deducts_leave ? 'deduct' : 'free') : undefined}
                   title={h ? `${h.name} — ${h.deducts_leave ? 'cuti bersama (potong cuti)' : 'libur (tidak potong cuti)'}` : undefined}
                   onMouseEnter={() => setHover(k)} onMouseLeave={() => setHover('')} onClick={() => { onChange(k); setOpen(false) }}>
-                  {d}{h && <span className={`absolute bottom-0.5 w-1 h-1 rounded-full ${selected ? 'bg-white' : h.deducts_leave ? 'bg-warn' : 'bg-ok'}`} />}
+                  {d}{h && <span className={`absolute bottom-0.5 w-1 h-1 rounded-full ${selected ? 'bg-panel' : h.deducts_leave ? 'bg-warn' : 'bg-ok'}`} />}
                 </button>
               )
             })}
@@ -140,7 +140,7 @@ export default function DateField({ value, onChange, min, max, businessId = 0, p
               <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10.5px] text-muted">
                 <span><i className="inline-block w-2 h-2 rounded-full bg-ok mr-1" />Libur</span>
                 <span><i className="inline-block w-2 h-2 rounded-full bg-warn mr-1" />Cuti bersama (potong cuti)</span>
-                <span><i className="text-brand/70 not-italic font-bold mr-1">12</i>Akhir pekan</span>
+                <span><i className="text-danger/70 not-italic font-bold mr-1">12</i>Akhir pekan</span>
               </div>
             )}
           </div>

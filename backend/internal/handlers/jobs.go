@@ -335,8 +335,11 @@ func fillRecurring(c *gin.Context, in recurringInput, r *models.RecurringTask, i
 	if r.ApprovalLevels < 1 {
 		r.ApprovalLevels = 1
 	}
-	if r.ApprovalLevels > 3 {
-		return "jenjang approval maksimal 3"
+	if r.ApprovalLevels > hardMaxApprovalLevels {
+		return fmt.Sprintf("jenjang approval maksimal %d", hardMaxApprovalLevels)
+	}
+	if r.RequiresApproval && in.ApproverUserID == nil && r.ApprovalLevels > maxApprovalLevels(pic.ID) {
+		return fmt.Sprintf("jenjang atasan PIC maksimal %d tingkat (sampai atasan tertinggi PIC)", maxApprovalLevels(pic.ID))
 	}
 	r.ApproverUserID = in.ApproverUserID
 	if in.Active != nil {

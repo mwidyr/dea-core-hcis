@@ -1,7 +1,10 @@
+import BrandLogo from '../components/BrandLogo'
+import ThemeToggle from '../components/ThemeToggle'
 import { useEffect, useRef, useState } from 'react'
-import { Camera, CameraOff, CheckCircle2, LogIn, LogOut, MapPin, MapPinOff, RefreshCw, SwitchCamera, XCircle } from 'lucide-react'
+import { Camera, CameraOff, CheckCircle2, Clock, LogIn, LogOut, MapPin, MapPinOff, RefreshCw, SwitchCamera, XCircle } from 'lucide-react'
 import PasswordInput from '../components/ui/PasswordInput'
-import { publicClock, publicTap, type TapResult } from '../services/api'
+import { publicClock, publicMoveTomorrow, publicTap, type DaySummary, type OutsideInfo, type TapResult } from '../services/api'
+import Modal from '../components/ui/Modal'
 import { ROLE_LABEL, useDevAccounts } from '../components/DevAccountPicker'
 import type { DevAccount, User } from '../types'
 
@@ -21,7 +24,10 @@ export default function Absen() {
   const [identifier, setIdentifier] = useState(() => { try { return localStorage.getItem('absen_identifier') || '' } catch { return '' } })
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState<'in' | 'out' | null>(null)
-  const [result, setResult] = useState<{ ok: boolean; text: string; data?: TapResult; name?: string } | null>(null)
+  const [result, setResult] = useState<{ ok: boolean; text: string; data?: TapResult; name?: string; pending?: boolean } | null>(null)
+  const [outside, setOutside] = useState<{ action: 'in' | 'out'; info: OutsideInfo } | null>(null) // asking to send a tap from outside the radius for approval
+  const [reason, setReason] = useState('')
+  const [moved, setMoved] = useState<Record<number, string>>({}) // result of "Pindahkan ke besok" per task
   const devAccounts = useDevAccounts() // null unless the backend runs with DEV_LOGIN=true
   const [devUser, setDevUser] = useState<DevAccount | null>(null) // picked test account → tap without a password
   const fix = useRef<Fix | undefined>()
@@ -95,7 +101,7 @@ export default function Absen() {
   const clock = t.toLocaleTimeString('en-GB', { timeZone: TZ, hour12: false })
   const date = t.toLocaleDateString('id-ID', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 
-  const tap = async (action: 'in' | 'out') => {
+  const tap = async (action: 'in' | 'out', confirmOutside = false) => {
     if (!shot) { setResult({ ok: false, text: 'Ambil foto terlebih dahulu sebelum Tap In/Out.' }); return }
     if (!devUser && (!identifier.trim() || !password)) { setResult({ ok: false, text: 'Isi NIK/email dan password terlebih dahulu.' }); return }
     window.clearTimeout(clearTimer.current)
@@ -104,24 +110,36 @@ export default function Absen() {
     try {
       const f = fix.current
       const who = devUser ? { dev_user_id: devUser.id } : { identifier: identifier.trim(), password }
-      const { data } = await publicTap({ ...who, action, lat: f?.lat, lng: f?.lng, accuracy: f?.accuracy }, shot.blob)
-      setResult({ ok: true, text: data.message, data })
-      setPassword('')
+      const { data } = await publicTap({ ...who, action, lat: f?.lat, lng: f?.lng, accuracy: f?.accuracy, ...(confirmOutside ? { confirm_outside: 1 as const, reason: reason.trim() } : {}) }, shot.blob)
+      setResult({ ok: true, text: data.message, data, pending: !!data.pending_location })
+      setPassword(''); setOutside(null); setReason(''); setMoved({})
       setShot(null); startCam(facing) // every tap needs its own fresh photo
-      clearTimer.current = window.setTimeout(() => setResult(null), 15000)
+      // a clock-out keeps its summary on screen until the employee closes it; other results clear themselves
+      if (!(data.action === 'out' && data.summary)) clearTimer.current = window.setTimeout(() => setResult(null), 15000)
     } catch (e: any) {
+      const body = e.response?.data
+      if (e.response?.status === 409 && body?.needs_confirm) { setOutside({ action, info: body as OutsideInfo }); return } // keep the photo and the password: only a confirmation is missing
       setResult({ ok: false, text: e.response?.data?.error || 'Tidak dapat terhubung ke server', name: e.response?.data?.name })
       setPassword('')
     } finally { setBusy(null) }
   }
 
+  const moveTask = async (id: number) => {
+    const token = result?.data?.summary_token
+    if (!token) return
+    try { const { data } = await publicMoveTomorrow(token, id); setMoved((m) => ({ ...m, [id]: data.message })) }
+    catch (e: any) { setMoved((m) => ({ ...m, [id]: e.response?.data?.error || 'Gagal memindahkan tugas' })) }
+  }
+  const closeResult = () => { window.clearTimeout(clearTimer.current); setResult(null); setMoved({}) }
+
   const geoLabel = geo.state === 'ok' ? `Lokasi terdeteksi · akurasi ±${Math.round(geo.fix!.accuracy)} m` : geo.state === 'locating' ? 'Mendeteksi lokasi…' : geo.state === 'denied' ? 'Akses lokasi ditolak — izinkan lokasi pada browser' : 'Lokasi tidak tersedia pada perangkat ini'
 
   return (
-    <div className="min-h-screen bg-surface grid place-items-center p-4">
+    <div className="min-h-screen bg-surface grid place-items-center p-3 sm:p-4 relative">
+      <ThemeToggle className="absolute top-3 right-3" />
       <div className="w-full max-w-md">
         <div className="flex items-center justify-center gap-2.5 mb-5">
-          <div className="w-9 h-9 rounded-[10px] bg-brand text-white grid place-items-center font-black">C</div>
+          <BrandLogo size={36} />
           <div><b className="text-[15px]">CORE</b><span className="block text-[10px] text-muted">Absensi Karyawan</span></div>
         </div>
 
@@ -132,7 +150,7 @@ export default function Absen() {
             <div className="text-[10px] text-muted mt-0.5">WIB · mengikuti waktu server</div>
           </div>
 
-          <div className={`flex items-center gap-2 text-xs rounded-lg px-3 py-2 mb-4 ${geo.state === 'ok' ? 'bg-ok-soft text-ok' : geo.state === 'locating' ? 'bg-gray-100 text-muted' : 'bg-warn-soft text-warn'}`}>
+          <div className={`flex items-center gap-2 text-xs rounded-lg px-3 py-2 mb-4 ${geo.state === 'ok' ? 'bg-ok-soft text-ok' : geo.state === 'locating' ? 'bg-tint text-muted' : 'bg-warn-soft text-warn'}`}>
             {geo.state === 'ok' ? <MapPin className="w-4 h-4 shrink-0" /> : <MapPinOff className="w-4 h-4 shrink-0" />}<span>{geoLabel}</span>
           </div>
 
@@ -147,13 +165,13 @@ export default function Absen() {
             </div>
             <div className="flex gap-2 mt-2">
               {shot ? (
-                <button type="button" onClick={retake} className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-line text-xs font-semibold hover:bg-gray-50"><RefreshCw className="w-3.5 h-3.5" />Foto Ulang</button>
+                <button type="button" onClick={retake} className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-line text-xs font-semibold hover:bg-sunken"><RefreshCw className="w-3.5 h-3.5" />Foto Ulang</button>
               ) : cam.state === 'error' ? (
-                <button type="button" onClick={() => startCam(facing)} className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-line text-xs font-semibold hover:bg-gray-50"><RefreshCw className="w-3.5 h-3.5" />Coba Lagi</button>
+                <button type="button" onClick={() => startCam(facing)} className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-line text-xs font-semibold hover:bg-sunken"><RefreshCw className="w-3.5 h-3.5" />Coba Lagi</button>
               ) : (
                 <>
-                  <button type="button" disabled={cam.state !== 'live'} onClick={capture} className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg bg-gray-900 text-white text-xs font-semibold disabled:opacity-40"><Camera className="w-3.5 h-3.5" />Ambil Foto</button>
-                  <button type="button" onClick={switchCam} className="px-3 py-2 rounded-lg border border-line text-xs font-semibold hover:bg-gray-50" title={facing === 'user' ? 'Pakai kamera belakang' : 'Pakai kamera depan'}><SwitchCamera className="w-4 h-4" /></button>
+                  <button type="button" disabled={cam.state !== 'live'} onClick={capture} className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg bg-brand text-on-brand text-xs font-semibold disabled:opacity-40"><Camera className="w-3.5 h-3.5" />Ambil Foto</button>
+                  <button type="button" onClick={switchCam} className="px-3 py-2 rounded-lg border border-line text-xs font-semibold hover:bg-sunken" title={facing === 'user' ? 'Pakai kamera belakang' : 'Pakai kamera depan'}><SwitchCamera className="w-4 h-4" /></button>
                 </>
               )}
             </div>
@@ -183,24 +201,24 @@ export default function Absen() {
               <div className="mt-1"><PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" disabled={!!devUser} placeholder={devUser ? 'tidak perlu password (akun uji)' : ''} /></div>
             </label>
             <div className="grid grid-cols-2 gap-3 pt-1">
-              <button type="button" disabled={!!busy || !shot} onClick={() => tap('in')} className="flex items-center justify-center gap-2 py-3 rounded-xl bg-ok text-white font-bold text-sm hover:opacity-90 disabled:opacity-60">
+              <button type="button" disabled={!!busy || !shot} onClick={() => tap('in')} className="flex items-center justify-center gap-2 py-3 rounded-xl bg-ok text-on-brand font-bold text-sm hover:opacity-90 disabled:opacity-60">
                 <LogIn className="w-4 h-4" />{busy === 'in' ? 'Memproses…' : 'Tap In'}
               </button>
-              <button type="button" disabled={!!busy || !shot} onClick={() => tap('out')} className="flex items-center justify-center gap-2 py-3 rounded-xl bg-brand text-white font-bold text-sm hover:opacity-90 disabled:opacity-60">
+              <button type="button" disabled={!!busy || !shot} onClick={() => tap('out')} className="flex items-center justify-center gap-2 py-3 rounded-xl bg-danger text-on-brand font-bold text-sm hover:opacity-90 disabled:opacity-60">
                 <LogOut className="w-4 h-4" />{busy === 'out' ? 'Memproses…' : 'Tap Out'}
               </button>
             </div>
           </form>
 
           {result && (
-            <div role="status" className={`mt-4 rounded-xl p-4 text-sm ${result.ok ? 'bg-ok-soft text-ok' : 'bg-brand-soft text-brand'}`}>
+            <div role="status" className={`mt-4 rounded-xl p-4 text-sm ${result.pending ? 'bg-warn-soft text-warn' : result.ok ? 'bg-ok-soft text-ok' : 'bg-danger-soft text-danger'}`}>
               <div className="flex items-start gap-2">
-                {result.ok ? <CheckCircle2 className="w-5 h-5 shrink-0" /> : <XCircle className="w-5 h-5 shrink-0" />}
+                {result.pending ? <Clock className="w-5 h-5 shrink-0" /> : result.ok ? <CheckCircle2 className="w-5 h-5 shrink-0" /> : <XCircle className="w-5 h-5 shrink-0" />}
                 <div className="min-w-0">
-                  {(result.data?.name || result.name) && <div className="font-extrabold text-gray-900">{result.data?.name || result.name}{result.data?.nik && <span className="font-normal text-muted"> · {result.data.nik}</span>}</div>}
+                  {(result.data?.name || result.name) && <div className="font-extrabold text-ink">{result.data?.name || result.name}{result.data?.nik && <span className="font-normal text-muted"> · {result.data.nik}</span>}</div>}
                   <div className="font-semibold">{result.text}</div>
                   {result.data && (
-                    <div className="text-xs text-gray-600 mt-1 space-y-0.5">
+                    <div className="text-xs text-ink/80 mt-1 space-y-0.5">
                       <div>Pukul <b>{new Date(result.data.time).toLocaleTimeString('en-GB', { timeZone: TZ, hour12: false })}</b> · {result.data.status}{result.data.position ? ` · ${result.data.position}` : ''}</div>
                       {result.data.location && <div>Lokasi: {result.data.location}{result.data.distance !== undefined && result.data.distance !== null ? ` (${result.data.distance} m dari titik)` : ''}</div>}
                     </div>
@@ -209,9 +227,57 @@ export default function Absen() {
               </div>
             </div>
           )}
+          {result?.data?.summary && <SummaryPanel s={result.data.summary} moved={moved} onMove={moveTask} onClose={closeResult} canMove={!!result.data.summary_token} />}
         </div>
         <p className="text-center text-[10px] text-muted mt-4">Gunakan akun Anda sendiri. Lokasi (GPS) dicatat saat absen.</p>
       </div>
+
+      <Modal open={!!outside} onClose={() => setOutside(null)} title="Di Luar Lokasi Kerja">
+        {outside && (
+          <div className="space-y-3 text-xs">
+            <div className="bg-warn-soft text-warn rounded-lg px-3 py-2.5"><b>Anda berada {outside.info.distance} m dari {outside.info.location}</b> (batas radius {outside.info.radius_m} m).</div>
+            <p>Absen dari luar lokasi tidak langsung dihitung. Tap {outside.action === 'in' ? 'In' : 'Out'} Anda dikirim ke atasan untuk disetujui, dan statusnya <b>Menunggu Approval Lokasi</b> sampai diputuskan. Bila ditolak, absen ini dibatalkan.</p>
+            <label className="block font-semibold">Alasan <span className="font-normal text-muted">(opsional, mis. meeting di klien)</span>
+              <textarea className="input w-full mt-1 font-normal" rows={2} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
+            <div className="flex justify-end gap-2">
+              <button className="btn" onClick={() => setOutside(null)}>Batal</button>
+              <button className="btn-primary" disabled={!!busy} onClick={() => tap(outside.action, true)}>{busy ? 'Mengirim…' : 'Kirim untuk Approval'}</button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  )
+}
+
+// What was done today, what is still open and what could move to the next working day (shown after Tap Out).
+function SummaryPanel({ s, moved, onMove, onClose, canMove }: { s: DaySummary; moved: Record<number, string>; onMove: (id: number) => void; onClose: () => void; canMove: boolean }) {
+  const next = new Date(s.next_workday + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })
+  const Row = ({ t, move }: { t: DaySummary['done'][number]; move?: boolean }) => (
+    <li className="flex items-start gap-2 py-1.5 border-b border-line last:border-0">
+      <div className="min-w-0 flex-1">
+        <div className="font-semibold text-ink break-words">{t.title}</div>
+        <div className="text-[11px] text-muted">{t.project || 'Non project'}{t.due ? ` · deadline ${t.due}` : ''} · {Math.round(t.progress)}%{t.timeliness_label ? ` · ${t.timeliness_label}` : ''}</div>
+        {t.changes && t.changes.length > 0 && <div className="text-[11px] text-ink/70">{t.changes.join(' · ')}</div>}
+        {moved[t.id] && <div className="text-[11px] text-info mt-0.5">{moved[t.id]}</div>}
+      </div>
+      {move && canMove && t.movable && !moved[t.id] && <button className="btn !px-2 !py-1 whitespace-nowrap" onClick={() => onMove(t.id)}>Pindahkan ke besok</button>}
+    </li>
+  )
+  const Block = ({ title, items, move, empty }: { title: string; items: DaySummary['done']; move?: boolean; empty: string }) => (
+    <div className="mt-3"><div className="text-[10.5px] font-bold uppercase tracking-wide text-muted mb-0.5">{title} ({items.length})</div>
+      {items.length ? <ul>{items.map((t) => <Row key={t.id} t={t} move={move} />)}</ul> : <div className="text-[11.5px] text-muted">{empty}</div>}</div>
+  )
+  return (
+    <div className="mt-4 rounded-xl border border-line p-4 text-xs" role="region" aria-label="Ringkasan hari ini">
+      <div className="flex items-center justify-between gap-2">
+        <div><div className="text-sm font-extrabold">Ringkasan Hari Ini</div><div className="text-[11px] text-muted">Laporan {new Date(s.date + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })} · pekerjaan setelah Tap Out masuk laporan hari kerja berikutnya</div></div>
+        <button className="btn" onClick={onClose}>Selesai</button>
+      </div>
+      <Block title="Selesai" items={s.done} empty="Belum ada tugas yang selesai hari ini" />
+      <Block title="Dikerjakan" items={s.worked} empty="Tidak ada pembaruan progres tugas hari ini" />
+      <Block title={`Belum selesai · perlu perhatian ${next}`} items={s.unfinished} move empty="Tidak ada tugas yang perlu dipindahkan" />
+      <p className="text-[10.5px] text-muted mt-3">"Pindahkan ke besok" memindahkan tanggal mulai tugas ke {next}. Deadline yang jatuh sebelum itu dikirim ke atasan sebagai pengajuan perubahan deadline.</p>
     </div>
   )
 }

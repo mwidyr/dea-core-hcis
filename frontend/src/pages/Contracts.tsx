@@ -65,7 +65,7 @@ export default function Contracts() {
   return (
     <Layout title="Kontrak & Dokumen" subtitle="Monitoring masa kontrak dan kelengkapan dokumen karyawan (KTP, KK, NPWP, Kontrak)">
       {!isAdmin ? <div className="card p-8 text-center text-sm text-muted">Halaman ini hanya untuk Super Admin dan HR Admin.</div> : <>
-        <div className="grid grid-cols-4 gap-3 mb-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
           <StatCard label="Karyawan Aktif" value={emps.length} />
           <StatCard label="Kontrak Berakhir ≤ 30 Hari" value={soon} />
           <StatCard label="Kontrak Sudah Berakhir" value={expired} />
@@ -83,7 +83,7 @@ export default function Contracts() {
               { head: 'Status Kerja', sortValue: (e) => e.employee_type, render: (e) => <Badge tone={e.employee_type === 'Tetap' ? 'green' : 'amber'}>{e.employee_type}</Badge> },
               { head: 'Kontrak Berakhir', sortValue: (e) => (e.contract_end ? new Date(e.contract_end).getTime() : null), render: (e) => { const d = daysLeft(e.contract_end); return e.contract_end ? <>{fmt(e.contract_end)} <Badge tone={d! < 0 ? 'red' : d! <= 30 ? 'red' : 'amber'}>{d! < 0 ? 'berakhir' : `${d} hari lagi`}</Badge></> : '-' } },
               { head: 'Riwayat', render: (e: Employee) => e.contracts?.length ? <button className="btn" onClick={() => setOpenEmp(e)}>{e.contracts.length} kontrak</button> : <span className="text-muted">-</span> },
-              ...CHECKLIST.map((c) => ({ head: c.key, render: (e: Employee) => done(e, c) ? <Check className="w-4 h-4 text-ok" /> : <X className="w-4 h-4 text-brand" /> })),
+              ...CHECKLIST.map((c) => ({ head: c.key, render: (e: Employee) => done(e, c) ? <Check className="w-4 h-4 text-ok" /> : <X className="w-4 h-4 text-danger" /> })),
               { head: 'Kelengkapan', render: (e: Employee) => missing(e).length ? <Badge tone="amber">Kurang {missing(e).length}</Badge> : <Badge tone="green">Lengkap</Badge> },
               { head: 'Aksi', render: (e: Employee) => <button className="btn" onClick={() => nav(`/employees/${e.id}`)}>Kelola</button> },
             ]} />

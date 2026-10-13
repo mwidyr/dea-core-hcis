@@ -1,3 +1,5 @@
+import BrandLogo from '../components/BrandLogo'
+import ThemeToggle from '../components/ThemeToggle'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { devLogin, login } from '../services/api'
@@ -41,18 +43,19 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen grid place-items-center bg-surface p-4">
+    <div className="min-h-screen grid place-items-center bg-surface p-4 relative">
+      <ThemeToggle className="absolute top-3 right-3" />
       <div className={`w-full ${devAccounts?.length ? 'max-w-3xl grid md:grid-cols-[360px_1fr] gap-4 items-start' : 'max-w-sm'}`}>
-        <form onSubmit={submit} className="card p-7 w-full space-y-4">
+        <form onSubmit={submit} className="card p-5 sm:p-7 w-full space-y-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-brand text-white grid place-items-center font-black">C</div>
+            <BrandLogo size={40} />
             <div><b>CORE</b><div className="text-[11px] text-muted">Business Operations Platform</div></div>
           </div>
           <label className="block text-xs font-semibold">Email<input className="input w-full mt-1" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus /></label>
           <label className="block text-xs font-semibold">Password<div className="mt-1"><PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} required /></div></label>
-          {error && !devAccounts?.length && <div className="text-xs text-brand bg-brand-soft rounded-lg px-3 py-2">{error}</div>}
+          {error && !devAccounts?.length && <div className="text-xs text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}
           <button className="btn-primary w-full py-2.5" disabled={loading}>{loading ? 'Memproses…' : 'Masuk'}</button>
-          {error && !!devAccounts?.length && <div className="text-xs text-brand bg-brand-soft rounded-lg px-3 py-2">{error}</div>}
+          {error && !!devAccounts?.length && <div className="text-xs text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}
         </form>
         {!!devAccounts?.length && <DevAccountPicker accounts={devAccounts} onPick={pick} busyId={busyId} />}
       </div>

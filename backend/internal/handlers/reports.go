@@ -97,7 +97,7 @@ func writeXLSX(c *gin.Context, rep reportData) {
 	sheet := "Laporan"
 	f.SetSheetName("Sheet1", sheet)
 	title, _ := f.NewStyle(&excelize.Style{Font: &excelize.Font{Bold: true, Size: 14}})
-	head, _ := f.NewStyle(&excelize.Style{Font: &excelize.Font{Bold: true, Color: "FFFFFF"}, Fill: excelize.Fill{Type: "pattern", Color: []string{"D84A4A"}, Pattern: 1},
+	head, _ := f.NewStyle(&excelize.Style{Font: &excelize.Font{Bold: true, Color: "FFFFFF"}, Fill: excelize.Fill{Type: "pattern", Color: []string{"17324D"}, Pattern: 1},
 		Alignment: &excelize.Alignment{Vertical: "center", WrapText: true}})
 	f.SetCellValue(sheet, "A1", rep.Title)
 	f.SetCellStyle(sheet, "A1", "A1", title)

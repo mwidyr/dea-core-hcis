@@ -76,7 +76,20 @@ type Employee struct {
 	// Contracts holds every contract period (newest first). ContractStart/ContractEnd above mirror the current one — see syncCurrentContract.
 	Contracts     []EmployeeContract `gorm:"foreignKey:EmployeeID" json:"contracts,omitempty"`
 	ContractCount int                `gorm:"-" json:"contract_count"`
-	DOH           *time.Time         `gorm:"-" json:"doh"` // Date of Hire: first day of work (JoinDate, else the earliest contract start)
+	Roster        *EmployeeRoster    `gorm:"-" json:"roster,omitempty"` // set when the employee follows a roster: it replaces the work calendar and location
+	DOH           *time.Time         `gorm:"-" json:"doh"`              // Date of Hire: first day of work (JoinDate, else the earliest contract start)
+}
+
+// EmployeeRoster summarises the roster an employee follows (derived, never stored on the employee).
+type EmployeeRoster struct {
+	ID           uint      `json:"id"`
+	Name         string    `json:"name"`
+	Pattern      string    `json:"pattern"`
+	StartTime    string    `json:"start_time"`
+	EndTime      string    `json:"end_time"`
+	LocationID   *uint     `json:"location_id"`
+	LocationName string    `json:"location_name"`
+	StartCycle   time.Time `json:"start_cycle"`
 }
 
 // EmployeeContract is one contract (or freelance engagement) period. An employee can have many.
@@ -337,9 +350,16 @@ type AttendanceRecord struct {
 	EarlyLeaveMinutes int        `json:"early_leave_minutes"`
 	WorkMinutes       int        `json:"work_minutes"`
 	WorkedOnOffDay    bool       `json:"worked_on_off_day"` // "Kerja Hari Libur": tapped in on a holiday / off day
-	Source            string     `json:"source"`            // kiosk | manual
-	Note              string     `json:"note"`
-	IP                string     `json:"ip"`
+	// A tap outside the work location's radius is recorded only after the employee confirms and a superior approves it.
+	InLocStatus      string `gorm:"size:12" json:"in_loc_status"`  // "" = inside the radius | pending | approved | rejected
+	OutLocStatus     string `gorm:"size:12" json:"out_loc_status"` // same, for the tap out
+	InLocApprovalID  *uint  `json:"in_loc_approval_id"`
+	OutLocApprovalID *uint  `json:"out_loc_approval_id"`
+	InLocReason      string `json:"in_loc_reason"`
+	OutLocReason     string `json:"out_loc_reason"`
+	Source           string `json:"source"` // kiosk | manual
+	Note             string `json:"note"`
+	IP               string `json:"ip"`
 }
 
 // AttendancePhoto is the stamped camera photo taken at tap in / tap out (at most one per record and kind).
@@ -444,7 +464,9 @@ type Task struct {
 	Status           string     `gorm:"index" json:"status"` // todo | in_progress | review | done (leaf tasks; parents are derived)
 	StartDate        *time.Time `json:"start_date"`
 	DueDate          *time.Time `json:"due_date"`
-	Weight           *float64   `json:"weight"`            // "bobot" of a top-level project task (Kurva-S / project progress)
+	ActualStart      *time.Time `json:"actual_start"`      // first time the task went In Progress
+	ProgressPct      int        `json:"own_progress"`      // manual progress (0–100) of a task without sub tasks; parents are derived
+	Weight           *float64   `json:"weight"`            // "bobot": share of this task among its siblings (sub tasks, or top-level tasks of a project)
 	RequireResult    bool       `json:"require_result"`    // PIC must attach the result before completing
 	RequiresApproval bool       `json:"requires_approval"` // completion goes through approval before the task is closed
 	ApprovalLevels   int        `json:"approval_levels"`   // 1–3 n+1 levels
@@ -454,6 +476,34 @@ type Task struct {
 	CreatedByUserID  uint       `json:"created_by_user_id"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
+}
+
+// TaskHistory is the change log of a task ("Riwayat perubahan"): one row per changed field.
+type TaskHistory struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	TaskID    uint      `gorm:"index" json:"task_id"`
+	UserID    uint      `json:"user_id"`
+	Field     string    `json:"field"` // created | title | status | progress | pic | assigner | start_date | due_date | weight | …
+	OldValue  string    `json:"old_value"`
+	NewValue  string    `json:"new_value"`
+	Note      string    `json:"note"`
+	CreatedAt time.Time `gorm:"index" json:"created_at"`
+	UserName  string    `gorm:"-" json:"user_name"`
+}
+
+// TaskDeadlineRequest: the PIC asks to move the deadline; it takes effect only when the approver approves.
+type TaskDeadlineRequest struct {
+	ID          uint       `gorm:"primaryKey" json:"id"`
+	TaskID      uint       `gorm:"index" json:"task_id"`
+	RequestedBy uint       `json:"requested_by"` // user id
+	OldDue      *time.Time `json:"old_due"`
+	NewDue      time.Time  `json:"new_due"`
+	Note        string     `json:"note"`
+	ApprovalID  *uint      `json:"approval_id"`
+	Status      string     `json:"status"` // Pending Approval | Disetujui | Ditolak | Dibatalkan
+	CreatedAt   time.Time  `json:"created_at"`
+	WaitingFor  string     `gorm:"-" json:"waiting_for"`
+	UserName    string     `gorm:"-" json:"user_name"`
 }
 
 // TaskMember: Role is "member" or "watcher" (pengamat — can follow progress/results without being PIC or member).

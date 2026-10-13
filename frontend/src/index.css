@@ -2,18 +2,78 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---- theme tokens: "R G B" triplets ---------------------------------------------------------
+   Light = the final CORE navy theme of the V113 prototype. Dark is new (the prototype has none).
+   Red is reserved for danger (errors, delete, overdue, rejected); actions and active states are navy. */
+:root {
+  --brand: 23 50 77;          /* #17324d */
+  --brand-hover: 36 74 107;   /* #244a6b */
+  --brand-soft: 234 240 245;  /* #eaf0f5 */
+  --on-brand: 255 255 255;
+  --danger: 185 28 28;        /* #b91c1c */
+  --danger-soft: 254 242 242; /* #fef2f2 */
+  --ok: 21 128 82;            /* #158052 */
+  --ok-soft: 237 248 242;     /* #edf8f2 */
+  --warn: 169 109 20;         /* #a96d14 */
+  --warn-soft: 255 247 232;   /* #fff7e8 */
+  --info: 79 127 198;         /* #4f7fc6 */
+  --info-soft: 238 244 255;   /* #eef4ff */
+  --violet: 122 104 182;      /* #7a68b6 */
+  --violet-soft: 243 240 255; /* #f3f0ff */
+  --line: 226 232 238;        /* #e2e8ee */
+  --muted: 107 123 136;       /* #6b7b88 */
+  --ink: 31 41 51;            /* #1f2933 */
+  --surface: 245 247 249;     /* #f5f7f9 */
+  --panel: 255 255 255;
+  --sunken: 247 249 250;      /* #f7f9fa */
+  --tint: 237 241 245;        /* #edf1f5 */
+  --shadow: 23 50 77;
+  color-scheme: light;
+}
+.dark {
+  --brand: 98 150 200;        /* readable as text on dark panels; white text on it stays legible for bold buttons */
+  --brand-hover: 124 172 218;
+  --brand-soft: 30 50 72;
+  --on-brand: 12 20 30;
+  --danger: 239 83 80;
+  --danger-soft: 66 28 32;
+  --ok: 74 200 140;
+  --ok-soft: 20 52 40;
+  --warn: 230 168 74;
+  --warn-soft: 56 44 20;
+  --info: 120 168 230;
+  --info-soft: 26 42 68;
+  --violet: 167 150 224;
+  --violet-soft: 42 35 68;
+  --line: 40 56 75;
+  --muted: 147 164 181;
+  --ink: 230 237 243;
+  --surface: 12 20 30;
+  --panel: 21 33 48;
+  --sunken: 26 40 57;
+  --tint: 33 50 69;
+  --shadow: 0 0 0;
+  color-scheme: dark;
+}
+
 @layer base {
-  body { @apply bg-surface text-[#22252b] font-sans; }
+  body { @apply bg-surface text-ink font-sans text-[13px]; }
+  ::placeholder { @apply text-muted/70; }
 }
 
 @layer components {
-  .card { @apply bg-white border border-line rounded-xl shadow-card; }
-  .btn { @apply border border-line bg-white text-gray-700 px-3 py-2 rounded-lg text-xs hover:bg-gray-50; }
-  .btn-primary { @apply bg-brand border border-brand text-white font-semibold px-3 py-2 rounded-lg text-xs hover:opacity-90; }
-  .input { @apply border border-line rounded-lg px-3 py-2 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-brand/20; }
-  .th { @apply text-left text-[10px] uppercase tracking-wider text-muted font-bold px-3 py-2 bg-gray-50 whitespace-nowrap; }
+  .card { @apply bg-panel border border-line rounded-xl shadow-card; }
+  .btn { @apply border border-line bg-panel text-ink/80 px-3 py-2 rounded-lg text-xs hover:bg-sunken disabled:opacity-50; }
+  .btn-primary { @apply bg-brand border border-brand text-on-brand font-semibold px-3 py-2 rounded-lg text-xs hover:bg-brand-hover hover:border-brand-hover disabled:opacity-50; }
+  .input { @apply border border-line rounded-lg px-3 py-2 text-xs bg-panel text-ink focus:outline-none focus:border-muted focus:ring-2 focus:ring-brand/20; }
+  .th { @apply text-left text-[10px] uppercase tracking-wider text-muted font-bold px-3 py-2 bg-sunken whitespace-nowrap; }
   .td { @apply px-3 py-2.5 text-xs border-t border-line; }
 }
 
-/* Org chart tree: centred, with connector lines between every level */
-.org-node { display: inline-block; min-width: 128px; max-width: 170px; background: #fff; border: 1px solid #e7e8eb; border-radius: 10px; padding: 8px 10px; box-shadow: 0 2px 8px rgba(29,33,40,.06); position: relative; z-index: 1; }
+/* Org chart node (the chart itself is laid out in Org.tsx) */
+.org-node { display: inline-block; min-width: 128px; max-width: 170px; background: rgb(var(--panel)); border: 1px solid rgb(var(--line)); border-radius: 10px; padding: 8px 10px; box-shadow: 0 2px 8px rgb(var(--shadow) / .06); position: relative; z-index: 1; }
+
+/* touch-friendly controls on phones */
+@media (max-width: 767px) {
+  .btn, .btn-primary, .input { min-height: 38px; }
+}

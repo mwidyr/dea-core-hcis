@@ -4,7 +4,7 @@ import DateField from '../ui/DateField'
 import Modal from '../ui/Modal'
 import MultiPick from '../ui/MultiPick'
 import { useAuthStore } from '../../store/auth'
-import { createTask, getApprovers, getEmployees, getKpiTaskOptions, getProjects, getTaskAssignees, getTasks, updateTask } from '../../services/api'
+import { createTask, getApprovers, getEmployees, getKpiTaskOptions, getProjects, getTaskAssignees, getTaskGivers, getTasks, updateTask } from '../../services/api'
 import type { Assignee, Employee, Person, Project, TaskRow } from '../../types'
 import { err } from './taskUtils'
 
@@ -36,15 +36,17 @@ export default function TaskForm({ task, defaults, onClose, onSaved }: Props) {
   const [kind, setKind] = useState<'biasa' | 'sub'>(f.parent_id ? 'sub' : 'biasa')
   const [assignees, setAssignees] = useState<Assignee[]>([])
   const [people, setPeople] = useState<Employee[]>([])
+  const [givers, setGivers] = useState<Assignee[]>([]) // anyone except the people below whoever enters the task
   const [projects, setProjects] = useState<Project[]>([])
   const [parents, setParents] = useState<TaskRow[]>([])
   const [approvers, setApprovers] = useState<Person[]>([])
+  const [maxLevels, setMaxLevels] = useState(3) // how many superiors the PIC has (approval can climb up to the top)
   const [kpis, setKpis] = useState<{ id: number; title: string; period: string }[]>([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }))
 
-  useEffect(() => { getTaskAssignees().then((r) => setAssignees(r.data)) }, [])
+  useEffect(() => { getTaskAssignees().then((r) => setAssignees(r.data)); getTaskGivers().then((r) => setGivers(r.data)).catch(() => setGivers([])) }, [])
   const pic = assignees.find((a) => a.id === f.pic_id)
   const parent = parents.find((p) => p.id === f.parent_id)
   const project = projects.find((p) => p.id === f.project_id)
@@ -69,7 +71,7 @@ export default function TaskForm({ task, defaults, onClose, onSaved }: Props) {
     if (!f.pic_id) { setKpis([]); return }
     getKpiTaskOptions(f.pic_id).then((r) => { setKpis(r.data); setF((x) => (x.kpi_id && !r.data.some((k) => k.id === x.kpi_id) ? { ...x, kpi_id: 0 } : x)) }).catch(() => setKpis([]))
   }, [f.pic_id])
-  useEffect(() => { if (f.pic_id) getApprovers(f.pic_id).then((r) => setApprovers(r.data.candidates)).catch(() => setApprovers([])) }, [f.pic_id])
+  useEffect(() => { if (f.pic_id) getApprovers(f.pic_id).then((r) => { setApprovers(r.data.candidates); setMaxLevels(Math.max(1, r.data.max_levels ?? 3)); setF((x) => (x.approval_levels > Math.max(1, r.data.max_levels ?? 3) ? { ...x, approval_levels: Math.max(1, r.data.max_levels ?? 3) } : x)) }).catch(() => setApprovers([])) }, [f.pic_id])
 
   const personOpts = useMemo(() => people.map((p) => ({ id: p.id, label: p.name, sub: p.position?.title })), [people])
   const memberOpts = personOpts.filter((o) => o.id !== f.pic_id)
@@ -85,7 +87,7 @@ export default function TaskForm({ task, defaults, onClose, onSaved }: Props) {
     try {
       const payload = {
         ...f, parent_id: kind === 'sub' ? f.parent_id : null, project_id: kind === 'sub' ? null : f.project_id,
-        weight: topLevelProject && f.weight !== '' ? Number(f.weight) : null, approver_user_id: f.requires_approval && f.approver_user_id ? f.approver_user_id : null, kpi_id: f.kpi_id || null,
+        weight: (topLevelProject || kind === 'sub') && f.weight !== '' ? Number(f.weight) : null, approver_user_id: f.requires_approval && f.approver_user_id ? f.approver_user_id : null, kpi_id: f.kpi_id || null,
         unit_id: pic?.unit_id ?? task?.unit_id ?? null,
       }
       const { data } = editing ? await updateTask(task!.id, payload) : await createTask(payload)
@@ -105,21 +107,21 @@ export default function TaskForm({ task, defaults, onClose, onSaved }: Props) {
         </div>
         <L label="Deskripsi" hint="(opsional)"><textarea className="input w-full" rows={2} value={f.description} onChange={(e) => set('description', e.target.value)} /></L>
 
-        <div className="border-t border-line pt-3 grid grid-cols-2 gap-3">
+        <div className="border-t border-line pt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="col-span-2 font-bold">Penugasan</div>
-          <L label="Pemberi tugas *" hint="(siapa yang memberi instruksi — termasuk via chat/call)">
+          <L label="Pemberi tugas *" hint="(siapa saja kecuali bawahan Anda — termasuk instruksi via chat/call)">
             <select className="input w-full" disabled={dis} value={f.assigner_id ?? ''} onChange={(e) => set('assigner_id', e.target.value ? Number(e.target.value) : null)}>
-              <option value="">— Pilih pemberi tugas —</option>{people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              {f.assigner_id && !people.some((p) => p.id === f.assigner_id) && <option value={f.assigner_id}>{task?.assigner_name || 'Saya'}</option>}
+              <option value="">— Pilih pemberi tugas —</option>{givers.map((p) => <option key={p.id} value={p.id}>{p.name}{p.relation === 'diri' ? ' (saya)' : p.relation === 'atasan' ? ' (atasan)' : ''}</option>)}
+              {f.assigner_id && !givers.some((p) => p.id === f.assigner_id) && <option value={f.assigner_id}>{task?.assigner_name || 'Saya'}</option>}
             </select>
           </L>
-          <L label="PIC / penerima tugas *" hint="(satu orang)">
+          <L label="PIC / penerima tugas *" hint="(satu orang: diri sendiri, bawahan, atau atasan sampai tertinggi)">
             <select className="input w-full" disabled={dis} value={f.pic_id || ''} onChange={(e) => set('pic_id', Number(e.target.value))}>
-              <option value="">— Pilih PIC —</option>{assignees.map((a) => <option key={a.id} value={a.id}>{a.name}{a.id === user?.employee_id ? ' (saya)' : ''}</option>)}
+              <option value="">— Pilih PIC —</option>{assignees.map((a) => <option key={a.id} value={a.id}>{a.name}{a.id === user?.employee_id ? ' (saya)' : a.relation === 'atasan' ? ' (atasan)' : ''}</option>)}
               {task && !assignees.some((a) => a.id === task.pic_id) && <option value={task.pic_id}>{task.pic_name}</option>}
             </select>
           </L>
-          <L label="Unit organisasi" hint="(otomatis mengikuti PIC)"><input className="input w-full bg-gray-50" disabled value={pic?.unit_name ?? task?.unit_name ?? '—'} /></L>
+          <L label="Unit organisasi" hint="(otomatis mengikuti PIC)"><input className="input w-full bg-sunken" disabled value={pic?.unit_name ?? task?.unit_name ?? '—'} /></L>
           <L label="Proyek" hint="(opsional)">
             <select className="input w-full" disabled={dis || kind === 'sub'} value={kind === 'sub' ? (parent?.project_id ?? '') : f.project_id ?? ''} onChange={(e) => set('project_id', e.target.value ? Number(e.target.value) : null)}>
               <option value="">Tidak ada / Non Project</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -130,7 +132,7 @@ export default function TaskForm({ task, defaults, onClose, onSaved }: Props) {
           <div className="col-span-2"><L label="Pengamat" hint="(opsional — memantau progres & hasil tanpa menjadi PIC/anggota)"><MultiPick options={memberOpts.filter((o) => !f.member_ids.includes(o.id))} value={f.watcher_ids} onChange={(v) => set('watcher_ids', v)} placeholder="Pilih pengamat" /></L></div>
         </div>
 
-        <div className="border-t border-line pt-3 grid grid-cols-2 gap-3">
+        <div className="border-t border-line pt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="col-span-2 font-bold">Struktur & waktu</div>
           <div className="col-span-2 flex gap-2">
             {([['biasa', 'Tugas Biasa / Induk', 'berdiri sendiri; menjadi induk saat diberi sub tugas'], ['sub', 'Sub Tugas', 'bagian dari tugas induk']] as const).map(([v, t, d]) => (
@@ -149,7 +151,7 @@ export default function TaskForm({ task, defaults, onClose, onSaved }: Props) {
           )}
           <L label="Mulai" hint="(opsional)"><DateField value={f.start_date} businessId={biz} onChange={(v) => { set('start_date', v); if (f.due_date && f.due_date < v) set('due_date', v) }} /></L>
           <L label="Deadline" hint="(opsional)"><DateField value={f.due_date} min={f.start_date || undefined} businessId={biz} onChange={(v) => set('due_date', v)} /></L>
-          {topLevelProject && <L label="Bobot proyek (%)" hint="(opsional — bobot tahapan ini di proyek & Kurva-S)"><input className="input w-full" type="number" min={0} max={100} step="any" disabled={dis} value={f.weight} onChange={(e) => set('weight', e.target.value)} placeholder="mis. 20" /></L>}
+          {(topLevelProject || kind === 'sub') && <L label={kind === 'sub' ? 'Bobot sub tugas' : 'Bobot proyek (%)'} hint={kind === 'sub' ? '(opsional — porsi sub tugas ini terhadap sub tugas lain pada induk yang sama; dipakai bila SEMUA sub tugas punya bobot)' : '(opsional — bobot tahapan ini di proyek & Kurva-S)'}><input className="input w-full" type="number" min={0} max={100} step="any" disabled={dis} value={f.weight} onChange={(e) => set('weight', e.target.value)} placeholder="mis. 25" /></L>}
         </div>
 
         {kpis.length > 0 && (
@@ -166,8 +168,8 @@ export default function TaskForm({ task, defaults, onClose, onSaved }: Props) {
           <label className="flex items-start gap-2"><input type="checkbox" className="mt-0.5" disabled={dis} checked={f.require_result} onChange={(e) => set('require_result', e.target.checked)} /><span><b>Lampiran hasil</b><div className="text-muted">PIC wajib melampirkan hasil pekerjaan saat menyelesaikan tugas.</div></span></label>
           <label className="flex items-start gap-2"><input type="checkbox" className="mt-0.5" disabled={dis} checked={f.requires_approval} onChange={(e) => set('requires_approval', e.target.checked)} /><span><b>Perlu approval penyelesaian</b><div className="text-muted">Tugas baru ditutup setelah disetujui atasan (bisa berjenjang). Tugas induk selesai otomatis dari sub tugasnya.</div></span></label>
           {f.requires_approval && (
-            <div className="ml-6 grid grid-cols-2 gap-3 bg-gray-50/70 rounded-lg p-3">
-              <L label="Jenjang atasan PIC"><select className="input w-full" disabled={dis || !!f.approver_user_id} value={f.approval_levels} onChange={(e) => set('approval_levels', Number(e.target.value))}>{[1, 2, 3].map((n) => <option key={n} value={n}>{n} tingkat{n > 1 ? ' (berjenjang)' : ''}</option>)}</select></L>
+            <div className="ml-6 grid grid-cols-1 sm:grid-cols-2 gap-3 bg-sunken/70 rounded-lg p-3">
+              <L label="Jenjang atasan PIC" hint={`(maks ${maxLevels} tingkat = sampai atasan tertinggi)`}><select className="input w-full" disabled={dis || !!f.approver_user_id} value={f.approval_levels} onChange={(e) => set('approval_levels', Number(e.target.value))}>{Array.from({ length: Math.max(maxLevels, f.approval_levels) }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n} tingkat{n === 1 ? ' (atasan langsung)' : n === maxLevels ? ' (sampai atasan tertinggi)' : ' (berjenjang)'}</option>)}</select></L>
               <L label="Approver" hint="(opsional)"><select className="input w-full" disabled={dis} value={f.approver_user_id || ''} onChange={(e) => set('approver_user_id', Number(e.target.value))}>
                 <option value="">Atasan PIC (n+1)</option>{approvers.map((a) => <option key={a.user_id} value={a.user_id}>{a.name} ({a.role})</option>)}</select></L>
               <div className="col-span-2 text-muted text-[11px]">{f.approver_user_id ? 'Hanya approver ini yang menyetujui; atasan PIC tidak diperlukan.' : `Persetujuan dari ${f.approval_levels} tingkat atasan PIC (n+1${f.approval_levels > 1 ? ', n+2…' : ''}).`}</div>
@@ -175,7 +177,7 @@ export default function TaskForm({ task, defaults, onClose, onSaved }: Props) {
           )}
         </div>
 
-        {error && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2">{error}</div>}
+        {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}
         <div className="flex justify-end gap-2"><button className="btn" onClick={onClose}>Batal</button><button className="btn-primary" disabled={busy} onClick={submit}>{busy ? 'Menyimpan…' : 'Simpan'}</button></div>
       </div>
     </Modal>

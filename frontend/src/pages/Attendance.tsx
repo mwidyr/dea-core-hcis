@@ -17,7 +17,7 @@ const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart
 const hm = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString('en-GB', { timeZone: 'Asia/Jakarta', hour12: false, hour: '2-digit', minute: '2-digit' }) : '–')
 const dur = (m: number) => (m ? `${Math.floor(m / 60)}j ${m % 60}m` : '–')
 const fmtDate = (d: string) => new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: '2-digit' })
-const tone: Record<AttStatus, 'green' | 'amber' | 'red' | 'blue' | 'purple' | 'gray'> = { Hadir: 'green', Terlambat: 'amber', 'Belum Absen': 'gray', 'Tidak Hadir': 'red', Cuti: 'blue', Izin: 'purple', Sakit: 'purple', OFF: 'gray', Libur: 'gray', Terjadwal: 'gray' }
+const tone: Record<AttStatus, 'green' | 'amber' | 'red' | 'blue' | 'purple' | 'gray'> = { 'Menunggu Approval Lokasi': 'amber', Hadir: 'green', Terlambat: 'amber', 'Belum Absen': 'gray', 'Tidak Hadir': 'red', Cuti: 'blue', Izin: 'purple', Sakit: 'purple', OFF: 'gray', Libur: 'gray', Terjadwal: 'gray' }
 const manualTone = { 'Pending Approval': 'amber', Disetujui: 'green', Ditolak: 'red', Dibatalkan: 'gray' } as const
 const err = (e: any, f: string) => e.response?.data?.error || f
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, 'id', { sensitivity: 'base' }) // default order: nama A–Z
@@ -56,7 +56,7 @@ export default function Attendance() {
           <div className="font-bold">Halaman absen karyawan (tanpa login)</div>
           <div className="text-muted">Karyawan membuka link ini, memasukkan NIK/email dan password, lalu memilih Tap In atau Tap Out. Lokasi GPS dicatat.</div>
         </div>
-        <code className="bg-gray-100 rounded-lg px-3 py-2 select-all">{link}</code>
+        <code className="bg-tint rounded-lg px-3 py-2 select-all">{link}</code>
         <button className="btn" onClick={copy}><Copy className="w-3 h-3 inline mr-1" />{copied ? 'Tersalin' : 'Salin'}</button>
         <a className="btn" href={link} target="_blank" rel="noreferrer"><ExternalLink className="w-3 h-3 inline mr-1" />Buka</a>
       </div>
@@ -98,7 +98,7 @@ export default function Attendance() {
               { head: 'Foto', render: (r) => (r.has_in_photo || r.has_out_photo) ? <button className="btn" onClick={() => setPhotoRow(r)}><Camera className="w-3.5 h-3.5 inline mr-1" />Lihat foto</button> : <span className="text-muted">–</span> },
               { head: 'Jam Kerja', render: (r) => dur(r.work_minutes) },
               { head: 'Status', render: (r) => <Badge tone={tone[r.status]}>{r.status}</Badge> },
-              { head: 'Keterangan', render: (r) => <span className="text-muted text-[11px]">{[r.late_minutes > 0 && `terlambat ${r.late_minutes} mnt`, r.early_leave_minutes > 0 && r.check_out && `pulang awal ${r.early_leave_minutes} mnt`, r.in_distance !== null && r.in_distance !== undefined && `${r.in_distance} m dari titik`, r.source === 'manual' && 'manual', r.leave_type && r.status !== 'Hadir' && r.status !== 'Terlambat' && r.leave_type].filter(Boolean).join(' · ') || '-'}</span> },
+              { head: 'Keterangan', render: (r) => <span className="text-muted text-[11px]">{[r.late_minutes > 0 && `terlambat ${r.late_minutes} mnt`, r.early_leave_minutes > 0 && r.check_out && `pulang awal ${r.early_leave_minutes} mnt`, r.in_distance !== null && r.in_distance !== undefined && `${r.in_distance} m dari titik`, r.source === 'manual' && 'manual', r.in_loc_status === 'pending' && 'tap in di luar lokasi, menunggu approval', r.in_loc_status === 'approved' && 'tap in di luar lokasi (disetujui)', r.out_loc_status === 'pending' && 'tap out di luar lokasi, menunggu approval', r.out_loc_status === 'approved' && 'tap out di luar lokasi (disetujui)', r.loc_reason && `alasan: ${r.loc_reason}`, r.leave_type && r.status !== 'Hadir' && r.status !== 'Terlambat' && r.leave_type].filter(Boolean).join(' · ') || '-'}</span> },
             ]} />
         </>}
 
@@ -117,7 +117,7 @@ export default function Attendance() {
               { head: 'Kerja Hari Libur', render: (r) => r.worked_off },
               { head: 'OFF / Libur', render: (r) => `${r.off} / ${r.holiday}` },
               { head: 'Total Jam', render: (r) => dur(r.work_minutes) },
-              { head: 'Kehadiran', render: (r) => <b className={r.rate >= 90 ? 'text-ok' : r.rate >= 75 ? 'text-warn' : 'text-brand'}>{r.rate}%</b> },
+              { head: 'Kehadiran', render: (r) => <b className={r.rate >= 90 ? 'text-ok' : r.rate >= 75 ? 'text-warn' : 'text-danger'}>{r.rate}%</b> },
             ]} />
         )}
 
@@ -144,7 +144,7 @@ export default function Attendance() {
               { head: 'Jam', render: (r) => `${r.check_in} – ${r.check_out}` },
               { head: 'Alasan', render: (r) => r.reason },
               { head: 'Status', render: (r) => <div><Badge tone={manualTone[r.status]}>{r.status === 'Pending Approval' ? 'Menunggu Persetujuan' : r.status}</Badge>{r.waiting_for && <div className="text-[10.5px] text-muted mt-0.5">oleh {r.waiting_for}</div>}</div> },
-              { head: 'Aksi', render: (r) => r.can_cancel && <button className="btn text-brand" onClick={async () => { if (confirm('Batalkan pengajuan ini?')) { try { await cancelManualAttendance(r.id); load() } catch (e: any) { alert(err(e, 'Gagal membatalkan')) } } }}>Batalkan</button> },
+              { head: 'Aksi', render: (r) => r.can_cancel && <button className="btn text-danger" onClick={async () => { if (confirm('Batalkan pengajuan ini?')) { try { await cancelManualAttendance(r.id); load() } catch (e: any) { alert(err(e, 'Gagal membatalkan')) } } }}>Batalkan</button> },
             ]} />
         )}
       </div>
@@ -199,19 +199,19 @@ function ManualForm({ businessId, onClose, onSaved }: { businessId: number; onCl
           </label>
         )}
         <label className="block font-semibold">Tanggal <span className="font-normal text-muted">(31 hari terakhir)</span><div className="mt-1 font-normal"><DateField value={date} min={minDate} max={todayStr} businessId={biz} onChange={setDate} /></div></label>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="block font-semibold">Jam masuk<input className="input w-full mt-1" type="time" value={inT} onChange={(e) => setInT(e.target.value)} /></label>
           <label className="block font-semibold">Jam keluar<input className="input w-full mt-1" type="time" value={outT} onChange={(e) => setOutT(e.target.value)} /></label>
         </div>
         <label className="block font-semibold">Alasan<textarea className="input w-full mt-1" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="mis. lupa tap in, GPS bermasalah, dinas luar" /></label>
-        <div className="border border-line rounded-lg p-3 bg-gray-50/60 space-y-2">
+        <div className="border border-line rounded-lg p-3 bg-sunken/60 space-y-2">
           <div className="font-bold">Persetujuan</div>
           {assigned ? <div className="text-ok bg-ok-soft rounded px-2 py-1.5">Hanya <b>{assignedPerson?.name}</b> yang menyetujui. Atasan (n+1) tidak diperlukan.</div> : <div>Atasan langsung (n+1): <b>{nplus.length ? nplus.map((p) => p.name).join(' → ') : '—'}</b></div>}
           <label className="block font-semibold">Tugaskan ke approver lain <span className="font-normal text-muted">(opsional)</span>
             <select className="input w-full mt-1" value={assigned} onChange={(e) => setAssigned(Number(e.target.value))}><option value={0}>— Tidak, gunakan atasan (n+1) —</option>{cands.map((c) => <option key={c.user_id} value={c.user_id}>{c.name} ({c.role})</option>)}</select>
           </label>
         </div>
-        {error && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2">{error}</div>}
+        {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}
         <div className="flex justify-end gap-2"><button className="btn" onClick={onClose}>Batal</button><button className="btn-primary" disabled={busy} onClick={submit}>{busy ? 'Mengirim…' : 'Ajukan'}</button></div>
       </div>
     </Modal>

@@ -5,13 +5,14 @@ import Badge from '../components/ui/Badge'
 import DataTable from '../components/ui/DataTable'
 import DateField, { clearHolidayCache } from '../components/ui/DateField'
 import Modal from '../components/ui/Modal'
+import RosterSchedule from '../components/RosterSchedule'
 import Tabs from '../components/ui/Tabs'
 import { bizParams, useBusinessStore } from '../store/business'
 import { cancelRosterAdjustment, createRosterAdjustment, getApprovers, getRosterAdjustments, createHoliday, deleteHoliday, deleteRoster, deleteWorkCalendar, getEmployees, getHolidays, getLocations, getRosters, getWorkCalendars, saveRoster, saveWorkCalendar, setRosterEmployees, updateHoliday } from '../services/api'
 import { useAuthStore } from '../store/auth'
 import type { Employee, Holiday, Location, Person, Roster, RosterAdjustment, WorkCalendar } from '../types'
 
-type Tab = 'holidays' | 'calendar' | 'roster' | 'adjust'
+type Tab = 'holidays' | 'calendar' | 'roster' | 'schedule' | 'adjust'
 const fmt = (d: string) => new Date(d).toLocaleDateString('id-ID', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
 const day = (d: string) => d.slice(0, 10)
 const isWeekend = (d: string) => [0, 6].includes(new Date(day(d) + 'T00:00:00').getDay())
@@ -58,7 +59,7 @@ export default function Schedule() {
   return (
     <Layout title="Setup Waktu Kerja" subtitle="Hari libur nasional / organisasi, kalender kerja, dan roster">
       <div className="card p-4">
-        <Tabs tabs={[{ id: 'holidays', label: `Hari Libur (${list.length})` }, { id: 'calendar', label: 'Kalender Kerja' }, { id: 'roster', label: 'Roster' }, { id: 'adjust', label: 'Penyesuaian Roster' }]} value={tab} onChange={setTab} />
+        <Tabs tabs={[{ id: 'holidays', label: `Hari Libur (${list.length})` }, { id: 'calendar', label: 'Kalender Kerja' }, { id: 'roster', label: 'Roster' }, { id: 'schedule', label: 'Jadwal Roster' }, { id: 'adjust', label: 'Penyesuaian Roster' }]} value={tab} onChange={setTab} />
 
         {tab === 'holidays' && <>
           <div className="grid md:grid-cols-2 gap-3 mb-3 text-xs">
@@ -78,20 +79,21 @@ export default function Schedule() {
               { head: 'Nama', render: (h) => <b>{h.name}</b> },
               { head: 'Cakupan', render: (h) => h.business_id === null ? <Badge tone="blue">Nasional</Badge> : <Badge tone="purple">{bizName(h.business_id)}</Badge> },
               { head: 'Jenis', render: (h) => h.deducts_leave ? <Badge tone="amber">Potong cuti</Badge> : <Badge tone="green">Tidak potong cuti</Badge> },
-              { head: 'Aksi', render: (h) => canManage && <div className="flex gap-1.5"><button className="btn" onClick={() => openEdit(h)}>Edit</button><button className="btn text-brand" onClick={() => remove(h)}>Hapus</button></div> },
+              { head: 'Aksi', render: (h) => canManage && <div className="flex gap-1.5"><button className="btn" onClick={() => openEdit(h)}>Edit</button><button className="btn text-danger" onClick={() => remove(h)}>Hapus</button></div> },
             ]} />
           {!canManage && <p className="text-[11px] text-muted mt-2">Hari libur hanya dapat diubah oleh Super Admin atau pejabat L1/L2.</p>}
         </>}
 
         {tab === 'calendar' && <Calendars />}
         {tab === 'roster' && <Rosters />}
+        {tab === 'schedule' && <RosterSchedule />}
         {tab === 'adjust' && <Adjustments />}
       </div>
 
       <Modal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? 'Ubah Hari Libur' : 'Tambah Hari Libur'}>
         {edit && (
           <div className="space-y-3 text-xs">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block font-semibold">{edit.id ? 'Tanggal' : 'Tanggal mulai'}<div className="mt-1 font-normal"><DateField value={edit.date} businessId={edit.business_id ?? 'national'} onChange={(v) => setEdit({ ...edit, date: v })} /></div></label>
               {!edit.id && <label className="block font-semibold">Sampai tanggal <span className="font-normal text-muted">(opsional)</span><div className="mt-1 font-normal"><DateField value={edit.end_date} min={edit.date} businessId={edit.business_id ?? 'national'} onChange={(v) => setEdit({ ...edit, end_date: v })} /></div></label>}
             </div>
@@ -108,7 +110,7 @@ export default function Schedule() {
                 </label>
               ))}
             </div>
-            {error && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2">{error}</div>}
+            {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}
             <div className="flex justify-end gap-2"><button className="btn" onClick={() => setEdit(null)}>Batal</button><button className="btn-primary" onClick={save}>Simpan</button></div>
           </div>
         )}
@@ -159,7 +161,7 @@ function Calendars() {
           { head: 'Toleransi', render: (c) => `${c.tolerance_min} menit` },
           { head: 'Kebijakan', render: (c) => (c.require_gps ? <Badge tone="green">GPS wajib</Badge> : <Badge>Tanpa GPS</Badge>) },
           { head: 'Status', render: (c) => (c.is_active ? <Badge tone="green">Aktif</Badge> : <Badge>Nonaktif</Badge>) },
-          { head: 'Aksi', render: (c) => can && <div className="flex gap-1.5"><button className="btn" onClick={() => { setError(''); setEdit({ ...c }) }}>Edit</button>{!c.is_default && <button className="btn text-brand" onClick={() => remove(c)}>Hapus</button>}</div> },
+          { head: 'Aksi', render: (c) => can && <div className="flex gap-1.5"><button className="btn" onClick={() => { setError(''); setEdit({ ...c }) }}>Edit</button>{!c.is_default && <button className="btn text-danger" onClick={() => remove(c)}>Hapus</button>}</div> },
         ]} />
       <p className="text-[11px] text-muted mt-2">Karyawan tanpa kalender sendiri memakai kalender <b>Default</b> bisnisnya. Kalender dipilih per karyawan di form Karyawan; karyawan roster memakai jadwal roster.</p>
 
@@ -167,10 +169,10 @@ function Calendars() {
         {edit && (
           <div className="space-y-3 text-xs">
             <label className="block font-semibold">{locked || edit.id ? 'Bisnis (terkunci)' : 'Bisnis'}
-              <select className="input w-full mt-1 disabled:bg-gray-100" disabled={locked || !!edit.id} value={edit.business_id || ''} onChange={(e) => setEdit({ ...edit, business_id: Number(e.target.value) })}><option value="">— Pilih bisnis —</option>{businesses.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
+              <select className="input w-full mt-1 disabled:bg-tint" disabled={locked || !!edit.id} value={edit.business_id || ''} onChange={(e) => setEdit({ ...edit, business_id: Number(e.target.value) })}><option value="">— Pilih bisnis —</option>{businesses.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
             <label className="block font-semibold">Nama kalender<input className="input w-full mt-1" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="mis. Kantor Reguler, Toko 6 Hari" /></label>
-            <div><div className="font-semibold mb-1">Hari kerja</div><div className="flex gap-1.5 flex-wrap">{DAYS.map(([n, l]) => <button type="button" key={n} onClick={() => toggleDay(n)} className={`px-3 py-1.5 rounded-lg border font-semibold ${edit.work_days.split(',').includes(n) ? 'bg-brand text-white border-brand' : 'border-line text-muted'}`}>{l}</button>)}</div></div>
-            <div className="grid grid-cols-2 gap-3">
+            <div><div className="font-semibold mb-1">Hari kerja</div><div className="flex gap-1.5 flex-wrap">{DAYS.map(([n, l]) => <button type="button" key={n} onClick={() => toggleDay(n)} className={`px-3 py-1.5 rounded-lg border font-semibold ${edit.work_days.split(',').includes(n) ? 'bg-brand text-on-brand border-brand' : 'border-line text-muted'}`}>{l}</button>)}</div></div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block font-semibold">Jam masuk<input className="input w-full mt-1" type="time" value={edit.start_time} onChange={(e) => setEdit({ ...edit, start_time: e.target.value })} /></label>
               <label className="block font-semibold">Jam pulang<input className="input w-full mt-1" type="time" value={edit.end_time} onChange={(e) => setEdit({ ...edit, end_time: e.target.value })} /></label>
               <label className="block font-semibold">Istirahat mulai<input className="input w-full mt-1" type="time" value={edit.break_start} onChange={(e) => setEdit({ ...edit, break_start: e.target.value })} /></label>
@@ -180,7 +182,7 @@ function Calendars() {
             <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={edit.require_gps} onChange={(e) => setEdit({ ...edit, require_gps: e.target.checked })} />Wajib GPS (absen hanya di radius lokasi kerja)</label>
             <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={edit.is_default} onChange={(e) => setEdit({ ...edit, is_default: e.target.checked })} />Jadikan kalender default bisnis ini</label>
             <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={edit.is_active} onChange={(e) => setEdit({ ...edit, is_active: e.target.checked })} />Aktif</label>
-            {error && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2">{error}</div>}
+            {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}
             <div className="flex justify-end gap-2"><button className="btn" onClick={() => setEdit(null)}>Batal</button><button className="btn-primary" onClick={save}>Simpan</button></div>
           </div>
         )}
@@ -225,9 +227,9 @@ function RosterPreview({ r }: { r: Roster }) {
       <div className="font-semibold mb-1">Preview siklus <span className="font-normal text-muted">(mulai {start.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })})</span></div>
       <div className="grid grid-cols-7 gap-0.5 text-center text-[10px]">
         {['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'].map((d) => <div key={d} className="font-bold text-muted">{d}</div>)}
-        {cells.map((d, i) => d ? <div key={i} className={`py-1 rounded ${working(r, d) ? 'bg-ok-soft text-ok font-bold' : 'bg-gray-100 text-muted'}`} title={d.toDateString()}>{d.getDate()}</div> : <div key={i} />)}
+        {cells.map((d, i) => d ? <div key={i} className={`py-1 rounded ${working(r, d) ? 'bg-ok-soft text-ok font-bold' : 'bg-tint text-muted'}`} title={d.toDateString()}>{d.getDate()}</div> : <div key={i} />)}
       </div>
-      <div className="flex gap-3 mt-1 text-[10.5px] text-muted"><span><i className="inline-block w-2 h-2 rounded bg-ok mr-1" />Kerja</span><span><i className="inline-block w-2 h-2 rounded bg-gray-300 mr-1" />OFF</span></div>
+      <div className="flex gap-3 mt-1 text-[10.5px] text-muted"><span><i className="inline-block w-2 h-2 rounded bg-ok mr-1" />Kerja</span><span><i className="inline-block w-2 h-2 rounded bg-line mr-1" />OFF</span></div>
     </div>
   )
 }
@@ -288,7 +290,7 @@ function Rosters() {
           { head: 'Start Default', render: (r) => new Date(r.start_cycle).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) },
           { head: 'Karyawan', render: (r) => `${r.employee_count ?? 0} orang` },
           { head: 'Status', render: (r) => (r.is_active ? <Badge tone="green">Aktif</Badge> : <Badge>Nonaktif</Badge>) },
-          { head: 'Aksi', render: (r) => (can || canAssign) && <div className="flex gap-1.5 whitespace-nowrap">{(can || canAssign) && <button className="btn" onClick={() => openAssign(r)}>Karyawan</button>}{can && <button className="btn" onClick={() => { setError(''); setEdit({ ...r, start_cycle: r.start_cycle.slice(0, 10) }) }}>Edit</button>}{can && <button className="btn text-brand" onClick={() => remove(r)}>Hapus</button>}</div> },
+          { head: 'Aksi', render: (r) => (can || canAssign) && <div className="flex gap-1.5 whitespace-nowrap">{(can || canAssign) && <button className="btn" onClick={() => openAssign(r)}>Karyawan</button>}{can && <button className="btn" onClick={() => { setError(''); setEdit({ ...r, start_cycle: r.start_cycle.slice(0, 10) }) }}>Edit</button>}{can && <button className="btn text-danger" onClick={() => remove(r)}>Hapus</button>}</div> },
         ]} />
       <p className="text-[11px] text-muted mt-2">Roster menggantikan kalender kerja bagi anggotanya; satu karyawan hanya mengikuti satu roster. <b>Jadwal libur ditentukan per karyawan lewat start cycle-nya</b> sehingga kru bisa bergantian. Libur nasional tidak menghentikan roster, dan cuti bersama tidak memotong saldo anggota roster. Pergeseran jadwal diajukan di tab Penyesuaian Roster.</p>
 
@@ -296,16 +298,16 @@ function Rosters() {
         {edit && (
           <div className="space-y-3 text-xs">
             <label className="block font-semibold">{locked || edit.id ? 'Bisnis (terkunci)' : 'Bisnis'}
-              <select className="input w-full mt-1 disabled:bg-gray-100" disabled={locked || !!edit.id} value={edit.business_id || ''} onChange={(e) => setEdit({ ...edit, business_id: Number(e.target.value), location_id: null })}><option value="">— Pilih bisnis —</option>{businesses.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
+              <select className="input w-full mt-1 disabled:bg-tint" disabled={locked || !!edit.id} value={edit.business_id || ''} onChange={(e) => setEdit({ ...edit, business_id: Number(e.target.value), location_id: null })}><option value="">— Pilih bisnis —</option>{businesses.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
             <label className="block font-semibold">Nama roster<input className="input w-full mt-1" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="mis. Site Banjarmasin 6:2" /></label>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <label className="block font-semibold">Kerja<input className="input w-full mt-1" type="number" min={1} max={60} value={edit.work_units} onChange={(e) => setEdit({ ...edit, work_units: Number(e.target.value) })} /></label>
               <label className="block font-semibold">Libur<input className="input w-full mt-1" type="number" min={0} max={60} value={edit.off_units} onChange={(e) => setEdit({ ...edit, off_units: Number(e.target.value) })} /></label>
               <label className="block font-semibold">Satuan<select className="input w-full mt-1" value={edit.unit} onChange={(e) => setEdit({ ...edit, unit: e.target.value })}><option value="hari">hari</option><option value="minggu">minggu</option></select></label>
             </div>
             <label className="block font-semibold">Start cycle default <span className="font-normal text-muted">(usulan untuk anggota baru; tiap karyawan punya start cycle sendiri)</span><div className="mt-1 font-normal"><DateField value={edit.start_cycle} businessId={edit.business_id || 0} onChange={(v) => setEdit({ ...edit, start_cycle: v })} /></div></label>
             <label className="block font-semibold">Lokasi kerja<select className="input w-full mt-1" value={edit.location_id ?? ''} onChange={(e) => setEdit({ ...edit, location_id: e.target.value ? Number(e.target.value) : null })}><option value="">— Lokasi karyawan masing-masing —</option>{bizLocations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block font-semibold">Jam masuk<input className="input w-full mt-1" type="time" value={edit.start_time} onChange={(e) => setEdit({ ...edit, start_time: e.target.value })} /></label>
               <label className="block font-semibold">Jam pulang<input className="input w-full mt-1" type="time" value={edit.end_time} onChange={(e) => setEdit({ ...edit, end_time: e.target.value })} /></label>
               <label className="block font-semibold">Istirahat mulai<input className="input w-full mt-1" type="time" value={edit.break_start} onChange={(e) => setEdit({ ...edit, break_start: e.target.value })} /></label>
@@ -315,7 +317,7 @@ function Rosters() {
             <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={edit.require_gps} onChange={(e) => setEdit({ ...edit, require_gps: e.target.checked })} />Wajib GPS</label>
             <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={edit.is_active} onChange={(e) => setEdit({ ...edit, is_active: e.target.checked })} />Aktif</label>
             {edit.start_cycle && edit.work_units > 0 && <RosterPreview r={edit} />}
-            {error && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2">{error}</div>}
+            {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}
             <div className="flex justify-end gap-2"><button className="btn" onClick={() => setEdit(null)}>Batal</button><button className="btn-primary" onClick={save}>Simpan</button></div>
           </div>
         )}
@@ -349,7 +351,7 @@ function Rosters() {
               })}
               {!assign.emps.length && <div className="px-3 py-6 text-center text-muted">Tidak ada karyawan yang dapat Anda atur.</div>}
             </div>
-            {assignError && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2">{assignError}</div>}
+            {assignError && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{assignError}</div>}
             <div className="flex items-center justify-between"><span className="text-muted">{Object.keys(assign.starts).length} dipilih</span><div className="flex gap-2"><button className="btn" onClick={() => setAssign(null)}>Batal</button><button className="btn-primary" onClick={saveAssign}>Simpan</button></div></div>
           </div>
         )}
@@ -379,7 +381,7 @@ function Adjustments() {
           { head: 'Menjadi', render: (a) => (a.kind === 'kerja' ? <Badge tone="green">Hari Kerja</Badge> : <Badge>Hari Libur</Badge>) },
           { head: 'Alasan', render: (a) => a.reason },
           { head: 'Status', render: (a) => <div><Badge tone={adjTone[a.status]}>{a.status === 'Pending Approval' ? 'Menunggu Persetujuan' : a.status}</Badge>{a.waiting_for && <div className="text-[10.5px] text-muted mt-0.5">oleh {a.waiting_for}</div>}</div> },
-          { head: 'Aksi', render: (a) => a.can_cancel && <button className="btn text-brand" onClick={async () => { if (confirm('Batalkan pengajuan ini?')) { try { await cancelRosterAdjustment(a.id); load() } catch (e: any) { alert(err(e, 'Gagal membatalkan')) } } }}>Batalkan</button> },
+          { head: 'Aksi', render: (a) => a.can_cancel && <button className="btn text-danger" onClick={async () => { if (confirm('Batalkan pengajuan ini?')) { try { await cancelRosterAdjustment(a.id); load() } catch (e: any) { alert(err(e, 'Gagal membatalkan')) } } }}>Batalkan</button> },
         ]} />
       {form && <AdjustmentForm businessId={businessId} onClose={() => setForm(false)} onSaved={() => { setForm(false); load() }} />}
     </>
@@ -433,7 +435,7 @@ function AdjustmentForm({ businessId, onClose, onSaved }: { businessId: number; 
           </select></label>
         {!people.length && <p className="text-muted">Tidak ada anggota roster yang dapat Anda ajukan. Karyawan harus lebih dulu dimasukkan ke roster.</p>}
         {roster && <p className="text-muted">Roster: <b>{roster.name}</b> ({roster.pattern})</p>}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="block font-semibold">Tanggal mulai<div className="mt-1 font-normal"><DateField value={start} businessId={biz} onChange={(v) => { setStart(v); if (!end || end < v) setEnd(v) }} /></div></label>
           <label className="block font-semibold">Tanggal selesai<div className="mt-1 font-normal"><DateField value={end} min={start} businessId={biz} onChange={setEnd} /></div></label>
         </div>
@@ -444,13 +446,13 @@ function AdjustmentForm({ businessId, onClose, onSaved }: { businessId: number; 
           ))}
         </div>
         <label className="block font-semibold">Alasan<textarea className="input w-full mt-1" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="mis. proyek belum selesai, pengganti rekan yang sakit" /></label>
-        <div className="border border-line rounded-lg p-3 bg-gray-50/60 space-y-2">
+        <div className="border border-line rounded-lg p-3 bg-sunken/60 space-y-2">
           <div className="font-bold">Persetujuan</div>
           {assigned ? <div className="text-ok bg-ok-soft rounded px-2 py-1.5">Hanya <b>{assignedPerson?.name}</b> yang menyetujui. Atasan (n+1) tidak diperlukan.</div> : <div>Atasan langsung (n+1): <b>{nplus.length ? nplus.map((p) => p.name).join(' → ') : '—'}</b></div>}
           <label className="block font-semibold">Tugaskan ke approver lain <span className="font-normal text-muted">(opsional)</span>
             <select className="input w-full mt-1" value={assigned} onChange={(e) => setAssigned(Number(e.target.value))}><option value={0}>— Tidak, gunakan atasan (n+1) —</option>{cands.map((c) => <option key={c.user_id} value={c.user_id}>{c.name} ({c.role})</option>)}</select></label>
         </div>
-        {error && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2">{error}</div>}
+        {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}
         <div className="flex justify-end gap-2"><button className="btn" onClick={onClose}>Batal</button><button className="btn-primary" disabled={busy} onClick={submit}>{busy ? 'Mengirim…' : 'Ajukan'}</button></div>
       </div>
     </Modal>

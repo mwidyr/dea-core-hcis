@@ -31,7 +31,7 @@ export default function Placements({ empId, primaryBusinessId, businesses }: { e
       {extra.map((p) => (
         <div key={p.id} className="flex items-center gap-2 border border-line rounded-lg px-2 py-1.5 mb-1">
           <Badge tone="blue">{p.business?.name}</Badge><span className="flex-1">{p.position?.title}</span>
-          <button type="button" className="p-0.5 text-brand" title="Hapus" onClick={() => del(p.id)}><X className="w-3.5 h-3.5" /></button>
+          <button type="button" className="p-0.5 text-danger" title="Hapus" onClick={() => del(p.id)}><X className="w-3.5 h-3.5" /></button>
         </div>
       ))}
       {!extra.length && <p className="text-muted mb-1">Belum ada penempatan di bisnis lain.</p>}
@@ -44,7 +44,7 @@ export default function Placements({ empId, primaryBusinessId, businesses }: { e
           <button type="button" className="btn" onClick={add}><Plus className="w-3 h-3 inline mr-1" />Tambah</button>
         </div>
       )}
-      {error && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2 mt-2">{error}</div>}
+      {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2 mt-2">{error}</div>}
     </div>
   )
 }

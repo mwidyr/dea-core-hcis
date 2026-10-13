@@ -45,6 +45,10 @@ func migrate(db *gorm.DB) {
 			WHERE a.id <> b.id AND a.employee_id = b.employee_id AND a.business_id = b.business_id
 			AND ((b.is_primary AND NOT a.is_primary) OR (a.is_primary = b.is_primary AND b.id < a.id))`)
 	}
+	// rule: an employee follows ONE roster. Clean legacy duplicates (keep the newest) before the unique index exists.
+	if db.Migrator().HasTable(&models.RosterAssignment{}) {
+		db.Exec(`DELETE FROM roster_assignments a USING roster_assignments b WHERE a.employee_id = b.employee_id AND a.id < b.id`)
+	}
 	// one-time backfill when the requires_attachment column is first created
 	freshAttachmentFlag := db.Migrator().HasTable(&models.LeaveType{}) && !db.Migrator().HasColumn(&models.LeaveType{}, "requires_attachment")
 	err := db.AutoMigrate(
@@ -78,6 +82,8 @@ func migrate(db *gorm.DB) {
 		&models.TaskMember{},
 		&models.TaskAttachment{},
 		&models.TaskComment{},
+		&models.TaskHistory{},
+		&models.TaskDeadlineRequest{},
 		&models.KPISettings{},
 		&models.DeptKPI{},
 		&models.EmployeeKPI{},

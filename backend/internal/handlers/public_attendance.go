@@ -87,6 +87,10 @@ func PublicAttendance(c *gin.Context) {
 		Lat, Lng   *float64
 		Accuracy   *float64
 	}{c.PostForm("identifier"), c.PostForm("password"), uint(devID), c.PostForm("action"), num("lat"), num("lng"), num("accuracy")}
+	confirm := tapConfirm{Outside: c.PostForm("confirm_outside") == "1", Reason: strings.TrimSpace(c.PostForm("reason"))}
+	if len([]rune(confirm.Reason)) > 300 {
+		confirm.Reason = string([]rune(confirm.Reason)[:300])
+	}
 	if in.Action != "in" && in.Action != "out" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "NIK/email, password, dan aksi (tap in / tap out) wajib diisi"})
 		return
@@ -103,7 +107,7 @@ func PublicAttendance(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "akun uji tidak valid atau tidak terhubung ke data karyawan"})
 			return
 		}
-		tapAs(c, du, in.Action, in.Lat, in.Lng, in.Accuracy, photo)
+		tapAs(c, du, in.Action, in.Lat, in.Lng, in.Accuracy, photo, confirm)
 		return
 	}
 	if strings.TrimSpace(in.Identifier) == "" || in.Password == "" {
@@ -132,11 +136,17 @@ func PublicAttendance(c *gin.Context) {
 		return
 	}
 	limiter.reset(acctKey) // correct credentials clear the failure counter
-	tapAs(c, u, in.Action, in.Lat, in.Lng, in.Accuracy, photo)
+	tapAs(c, u, in.Action, in.Lat, in.Lng, in.Accuracy, photo, confirm)
 }
 
 // tapAs runs the tap for an already-authenticated user and writes the HTTP response.
-func tapAs(c *gin.Context, u models.User, action string, lat, lng, acc *float64, photo *multipart.FileHeader) {
+// tapConfirm: the employee confirmed sending a tap that is outside the work location's radius, with an optional reason.
+type tapConfirm struct {
+	Outside bool
+	Reason  string
+}
+
+func tapAs(c *gin.Context, u models.User, action string, lat, lng, acc *float64, photo *multipart.FileHeader, confirm tapConfirm) {
 	if u.EmployeeID == nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Akun ini tidak terhubung ke data karyawan, tidak dapat absen."})
 		return
@@ -152,13 +162,23 @@ func tapAs(c *gin.Context, u models.User, action string, lat, lng, acc *float64,
 		c.JSON(terr.Status, gin.H{"error": terr.Msg, "name": emp.Name})
 		return
 	}
-	res, terr := performTap(tapRequest{Emp: emp, Action: action, Lat: lat, Lng: lng, Acc: acc, IP: c.ClientIP(), Now: time.Now(), Photo: img})
+	res, terr := performTap(tapRequest{Emp: emp, Action: action, Lat: lat, Lng: lng, Acc: acc, IP: c.ClientIP(), Now: time.Now(), Photo: img, ConfirmOutside: confirm.Outside, Reason: confirm.Reason})
 	if terr != nil {
+		if terr.Confirm != nil { // outside the radius: ask the client to confirm and send it for approval
+			c.JSON(http.StatusConflict, gin.H{"error": terr.Msg, "name": emp.Name, "needs_confirm": true, "distance": terr.Confirm.Distance, "location": terr.Confirm.Place, "radius_m": terr.Confirm.Radius})
+			return
+		}
 		c.JSON(terr.Status, gin.H{"error": terr.Msg, "name": emp.Name})
 		return
 	}
 	database.DB.Create(&models.AuditLog{UserID: u.ID, Action: "tap_" + action, Entity: "attendance", EntityID: emp.NIK})
 	res["name"], res["nik"] = emp.Name, emp.NIK
+	if action == "out" { // clock-out summary: what was done, what is still open, what could move to the next working day
+		if wd, ok := res["work_date"].(time.Time); ok {
+			res["summary"] = buildDaySummary(emp, wd, time.Now())
+			res["summary_token"] = signTapToken(emp.ID, time.Now().Add(tapTokenTTL))
+		}
+	}
 	if emp.Position != nil {
 		res["position"] = emp.Position.Title
 	}

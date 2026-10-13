@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { FileDown, FileSpreadsheet } from 'lucide-react'
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
+import { exportPdf } from '../utils/pdf'
 import Layout from '../components/Layout/Layout'
 import PeriodPicker, { currentPeriod } from '../components/PeriodPicker'
 import DataTable from '../components/ui/DataTable'
@@ -60,21 +59,15 @@ export default function Reports() {
   const xlsx = async () => { setBusy(true); try { await downloadReportXlsx(type, params) } catch (e: any) { setError('Gagal mengekspor Excel') } finally { setBusy(false) } }
   const pdf = () => {
     if (!rep) return
-    const doc = new jsPDF({ orientation: rep.columns.length > 7 ? 'landscape' : 'portrait', unit: 'pt', format: 'a4' })
-    doc.setFontSize(14); doc.text(rep.title, 40, 40)
-    doc.setFontSize(9); doc.setTextColor(110); doc.text(rep.subtitle, 40, 56)
-    rep.summary.forEach((kv, i) => doc.text(`${kv[0]}: ${kv[1]}`, 40, 72 + i * 11))
-    autoTable(doc, { startY: 80 + rep.summary.length * 11, head: [rep.columns], body: rep.rows.map((r) => r.map((c) => String(c ?? ''))), styles: { fontSize: 7.5, cellPadding: 3 }, headStyles: { fillColor: [216, 74, 74] }, margin: { left: 40, right: 40 },
-      didDrawPage: () => { doc.setFontSize(8); doc.setTextColor(140); doc.text(`Dicetak ${new Date().toLocaleString('id-ID')} · CORE HCIS`, 40, doc.internal.pageSize.getHeight() - 20) } })
-    doc.save(`laporan-${type}-${ymd(new Date())}.pdf`)
+    exportPdf({ title: rep.title, subtitle: rep.subtitle, summary: rep.summary.map(([k, v]) => [k, v] as [string, string]), tables: [{ columns: rep.columns, rows: rep.rows }], filename: `laporan-${type}-${ymd(new Date())}.pdf` })
   }
 
   const sel = 'input'
   if (!can('reports.view')) return <Layout title="Laporan"><div className="card p-8 text-center text-sm text-muted">Anda tidak memiliki izin untuk melihat laporan. Hubungi Super Admin bila diperlukan.</div></Layout>
   return (
     <Layout title="Laporan" subtitle="Laporan per karyawan, absensi, cuti, tugas, proyek, dan KPI — ekspor ke Excel atau PDF">
-      <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5 w-fit mb-3 flex-wrap">
-        {TYPES.map(([id, label, hint]) => <button key={id} title={hint} onClick={() => { setType(id); setF((x) => ({ ...x, status: '', category: '' })) }} className={`px-3.5 py-1.5 rounded-md text-xs font-semibold ${type === id ? 'bg-white shadow-sm text-brand' : 'text-muted'}`}>{label}</button>)}
+      <div className="flex gap-1 bg-tint rounded-lg p-0.5 w-fit mb-3 flex-wrap">
+        {TYPES.map(([id, label, hint]) => <button key={id} title={hint} onClick={() => { setType(id); setF((x) => ({ ...x, status: '', category: '' })) }} className={`px-3.5 py-1.5 rounded-md text-xs font-semibold ${type === id ? 'bg-panel shadow-sm text-brand' : 'text-muted'}`}>{label}</button>)}
       </div>
 
       <div className="card p-4">
@@ -100,7 +93,7 @@ export default function Reports() {
           </div>
         </div>
 
-        {error && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2 mb-3 text-xs">{error}</div>}
+        {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2 mb-3 text-xs">{error}</div>}
         {rep && <>
           <div className="mb-3"><div className="font-bold text-sm">{rep.title}</div><div className="text-xs text-muted">{rep.subtitle}</div></div>
           {rep.summary.length > 0 && <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: `repeat(${Math.min(4, rep.summary.length)}, minmax(0, 1fr))` }}>{rep.summary.map((kv) => <StatCard key={kv[0]} label={kv[0]} value={<span className="text-xl">{kv[1]}</span>} />)}</div>}

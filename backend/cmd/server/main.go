@@ -28,6 +28,7 @@ func main() {
 	middleware.JWTSecret = cfg.JWTSecret
 	handlers.Store = storage.Local{Root: cfg.UploadDir}
 	handlers.DevLoginEnabled = cfg.DevLogin
+	handlers.TapSecret = []byte(cfg.JWTSecret)
 	if cfg.DevLogin {
 		log.Println("WARNING: DEV_LOGIN=true — passwordless account picker is ENABLED. Local development only; never enable in production.")
 	}

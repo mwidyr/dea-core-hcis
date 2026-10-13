@@ -48,7 +48,12 @@ func decorate(reqs []models.ApprovalRequest) {
 
 func pendingForMe(c *gin.Context) *gorm.DB {
 	q := database.DB.Model(&models.ApprovalRequest{}).Where("status = ?", approval.Pending)
-	if role(c) != "super_admin" { // super admin can act on everything
+	if role(c) == "super_admin" { // super admin can act on everything except what they filed themselves
+		q = q.Where("requester_user_id <> ?", uid(c))
+		if me := myEmployeeID(c); me != nil {
+			q = q.Where("requester_employee_id IS NULL OR requester_employee_id <> ?", *me)
+		}
+	} else {
 		q = q.Where(`EXISTS (SELECT 1 FROM approval_steps s WHERE s.request_id = approval_requests.id
 			AND s.level = approval_requests.current_level AND s.status = 'Pending' AND s.approver_user_id = ?)`, uid(c))
 	}
@@ -106,7 +111,7 @@ func decide(approve bool) gin.HandlerFunc {
 		})
 		if err != nil {
 			code := http.StatusBadRequest
-			if err == approval.ErrNotAllowed {
+			if err == approval.ErrNotAllowed || err == approval.ErrSelfApproval {
 				code = http.StatusForbidden
 			} else if err == approval.ErrNotPending {
 				code = http.StatusConflict
@@ -162,7 +167,7 @@ func Approvers(c *gin.Context) {
 	for _, u := range us {
 		cands = append(cands, person{u.ID, u.Name, u.Role})
 	}
-	c.JSON(http.StatusOK, gin.H{"nplus1": nplus, "candidates": cands})
+	c.JSON(http.StatusOK, gin.H{"nplus1": nplus, "candidates": cands, "max_levels": maxApprovalLevels(empID)})
 }
 
 // GetApproval returns one request with its chain (requester, approvers, their superiors, HR may view).

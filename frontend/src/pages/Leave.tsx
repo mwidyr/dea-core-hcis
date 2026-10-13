@@ -94,14 +94,14 @@ export default function Leave() {
         <div className="mb-3 rounded-xl border border-warn/40 bg-warn-soft p-3 text-xs flex items-start gap-3">
           <BellRing className="w-5 h-5 text-warn shrink-0 mt-0.5" />
           <div className="flex-1">
-            <div className="font-bold text-gray-900">{rw.in_off ? 'Anda sedang dalam masa OFF roster' : `Masa OFF roster Anda dimulai ${rw.days_until_off === 1 ? 'besok' : `${rw.days_until_off} hari lagi`}`}</div>
-            <div className="text-gray-700 mt-0.5">OFF {fmt(rw.off_start)} – {fmt(rw.off_end)}. Ingin memperpanjang libur? Cuti tahunan hanya dapat diajukan <b>bersambung setelah masa OFF</b>, mulai <b>{fmt(rw.leave_from)}</b> (tidak bisa di masa kerja atau sebelum OFF karena memotong hari kerja).</div>
+            <div className="font-bold text-ink">{rw.in_off ? 'Anda sedang dalam masa OFF roster' : `Masa OFF roster Anda dimulai ${rw.days_until_off === 1 ? 'besok' : `${rw.days_until_off} hari lagi`}`}</div>
+            <div className="text-ink/80 mt-0.5">OFF {fmt(rw.off_start)} – {fmt(rw.off_end)}. Ingin memperpanjang libur? Cuti tahunan hanya dapat diajukan <b>bersambung setelah masa OFF</b>, mulai <b>{fmt(rw.leave_from)}</b> (tidak bisa di masa kerja atau sebelum OFF karena memotong hari kerja).</div>
           </div>
           <button className="btn-primary whitespace-nowrap" onClick={() => { setFormStart(rw.leave_from.slice(0, 10)); setForm(true) }}>Ajukan cuti mulai {fmt(rw.leave_from)}</button>
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-3 mb-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
         <Score title="Karyawan Aktif" value={summary?.active ?? 0} unit="orang" />
         <Score title="Karyawan Tidak Bekerja" value={summary?.off ?? 0} unit="orang" tone="red" details={[['Cuti', summary?.cuti ?? 0], ['Izin', summary?.izin ?? 0], ['Sakit', summary?.sakit ?? 0]]} />
         <Score title="Karyawan Bekerja" value={summary?.working ?? 0} unit="orang" tone="green" details={[['Pending Pengajuan', summary?.pending ?? 0]]} />
@@ -110,9 +110,9 @@ export default function Leave() {
       <div className="card p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="text-xs font-extrabold tracking-wide">{mode === 'data' ? 'DATA CUTI & IZIN' : `SALDO CUTI ${year}`}</div>
-          <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
+          <div className="flex gap-1 bg-tint rounded-lg p-0.5">
             {(['data', 'balance'] as const).map((m) => (
-              <button key={m} onClick={() => setMode(m)} className={`px-3 py-1 rounded-md text-xs font-semibold ${mode === m ? 'bg-white shadow-sm text-brand' : 'text-muted'}`}>{m === 'data' ? 'Data' : 'Saldo Cuti'}</button>
+              <button key={m} onClick={() => setMode(m)} className={`px-3 py-1 rounded-md text-xs font-semibold ${mode === m ? 'bg-panel shadow-sm text-brand' : 'text-muted'}`}>{m === 'data' ? 'Data' : 'Saldo Cuti'}</button>
             ))}
           </div>
         </div>
@@ -140,9 +140,9 @@ export default function Leave() {
                   <button className="btn" onClick={() => setDetail(r)}>Detail</button>
                   {r.can_decide && <>
                     <button className="btn-primary" onClick={() => { setDecisionError(''); setDecision({ row: r, approve: true, note: '' }) }}>Setujui</button>
-                    <button className="btn text-brand" onClick={() => { setDecisionError(''); setDecision({ row: r, approve: false, note: '' }) }}>Tolak</button>
+                    <button className="btn text-danger" onClick={() => { setDecisionError(''); setDecision({ row: r, approve: false, note: '' }) }}>Tolak</button>
                   </>}
-                  {r.can_cancel && <button className="btn text-brand" onClick={() => cancel(r)}>Batalkan</button>}
+                  {r.can_cancel && <button className="btn text-danger" onClick={() => cancel(r)}>Batalkan</button>}
                 </div>) },
             ]} />
         ) : (
@@ -156,7 +156,7 @@ export default function Leave() {
               { head: 'Terpakai', render: (b) => b.used },
               { head: 'Pending', render: (b) => b.pending ? <Badge tone="amber">{b.pending}</Badge> : 0 },
               { head: 'Cuti Bersama', render: (b) => <span title="Libur yang memotong cuti, berlaku untuk semua karyawan">{b.collective}</span> },
-              { head: 'Sisa', render: (b) => <b className={b.remaining <= 2 ? 'text-brand' : 'text-ok'}>{b.remaining}</b> },
+              { head: 'Sisa', render: (b) => <b className={b.remaining <= 2 ? 'text-danger' : 'text-ok'}>{b.remaining}</b> },
               { head: 'Kedaluwarsa', render: (b) => fmt(b.expiry) },
               { head: 'Aksi', render: (b) => (
                 <div className="flex gap-1.5 whitespace-nowrap">
@@ -174,11 +174,11 @@ export default function Leave() {
       <Modal open={!!decision} onClose={() => setDecision(null)} title={decision?.approve ? 'Setujui Pengajuan' : 'Tolak Pengajuan'}>
         {decision && (
           <div className="space-y-3 text-xs">
-            <div className="bg-gray-50 rounded-lg p-3"><b>{decision.row.type_name} — {decision.row.employee_name}</b><div className="text-muted mt-0.5">{period(decision.row)} · {decision.row.days} hari · {decision.row.reason || 'tanpa alasan'}</div></div>
+            <div className="bg-sunken rounded-lg p-3"><b>{decision.row.type_name} — {decision.row.employee_name}</b><div className="text-muted mt-0.5">{period(decision.row)} · {decision.row.days} hari · {decision.row.reason || 'tanpa alasan'}</div></div>
             {decision.row.attachment_count > 0 && <div><div className="font-bold mb-1">Lampiran (validasi dokumen)</div><LeaveFiles id={decision.row.id} /></div>}
             <label className="block font-semibold">Catatan {decision.approve ? '(opsional)' : '(wajib)'}<textarea className="input w-full mt-1" rows={3} value={decision.note} onChange={(e) => setDecision({ ...decision, note: e.target.value })} /></label>
-            {decisionError && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2">{decisionError}</div>}
-            <div className="flex justify-end gap-2"><button className="btn" onClick={() => setDecision(null)}>Batal</button><button className={decision.approve ? 'btn-primary' : 'btn-primary !bg-gray-800 !border-gray-800'} onClick={submitDecision}>{decision.approve ? 'Setujui' : 'Tolak'}</button></div>
+            {decisionError && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{decisionError}</div>}
+            <div className="flex justify-end gap-2"><button className="btn" onClick={() => setDecision(null)}>Batal</button><button className={decision.approve ? 'btn-primary' : 'btn-primary !bg-brand !border-brand'} onClick={submitDecision}>{decision.approve ? 'Setujui' : 'Tolak'}</button></div>
           </div>
         )}
       </Modal>
@@ -186,10 +186,10 @@ export default function Leave() {
       <Modal open={!!grant} onClose={() => setGrant(null)} title={`Tambah Cuti — ${grant?.b.name ?? ''}`}>
         {grant && (
           <div className="space-y-3 text-xs">
-            <p className="text-muted">Menambah jumlah hari cuti tahun {grant.b.year}. Saldo sekarang: <b className="text-gray-800">sisa {grant.b.remaining} hari</b>. Pemberian tercatat di audit log.</p>
+            <p className="text-muted">Menambah jumlah hari cuti tahun {grant.b.year}. Saldo sekarang: <b className="text-ink">sisa {grant.b.remaining} hari</b>. Pemberian tercatat di audit log.</p>
             <label className="block font-semibold">Jumlah hari tambahan<input className="input w-full mt-1" type="number" min={1} max={60} value={grant.days} onChange={(e) => setGrant({ ...grant, days: e.target.value })} /></label>
             <label className="block font-semibold">Alasan<textarea className="input w-full mt-1" rows={2} value={grant.reason} onChange={(e) => setGrant({ ...grant, reason: e.target.value })} placeholder="mis. kompensasi lembur proyek, bonus kinerja…" /></label>
-            {grantError && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2">{grantError}</div>}
+            {grantError && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{grantError}</div>}
             <div className="flex justify-end gap-2"><button className="btn" onClick={() => setGrant(null)}>Batal</button><button className="btn-primary" onClick={submitGrant}>Tambahkan</button></div>
           </div>
         )}
@@ -240,7 +240,7 @@ function LeaveFiles({ id, canEdit, onChanged }: { id: number; canEdit?: boolean;
     <div className="space-y-2">
       <FileThumbs items={items} fetchBlob={(aid) => fetchLeaveAttachmentBlob(id, aid).then((r) => r.data)} onDelete={canEdit ? del : undefined} empty="Tidak ada lampiran." />
       {canEdit && <label className="btn inline-block cursor-pointer"><Plus className="w-3 h-3 inline mr-1" />Tambah lampiran<input type="file" className="hidden" accept="image/*,application/pdf" onChange={(e) => { add(e.target.files?.[0]); e.target.value = '' }} /></label>}
-      {error && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2">{error}</div>}
+      {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}
     </div>
   )
 }
@@ -256,7 +256,7 @@ function LeaveDetail({ row, types, onClose, onCancel, onChanged }: { row: LeaveR
   return (
     <Modal open onClose={onClose} title={`${row.type_name} — ${row.employee_name}`}>
       <div className="space-y-4 text-xs">
-        <dl className="grid grid-cols-2 gap-3">
+        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {[['Karyawan', `${row.employee_name} (${row.unit_name || row.business_name})`], ['Jenis', row.type_name], ['Tanggal', period(row)], ['Durasi', `${row.days} hari kerja`], ['Kembali Kerja', fmt(row.back_date)], ['Status', row.status], ['Alasan', row.reason || '-'], ['Diajukan', dt(ap?.created_at)]].map(([k, v]) => (
             <div key={k}><dt className="text-muted text-[10.5px]">{k}</dt><dd className="font-semibold">{v}</dd></div>
           ))}
@@ -273,7 +273,7 @@ function LeaveDetail({ row, types, onClose, onCancel, onChanged }: { row: LeaveR
               <span><b>{s.approver_name}</b> <span className="text-muted">({kindLabel[s.kind]})</span>{s.acted_at && <span className="text-muted"> · {dt(s.acted_at)}</span>}{s.note && <div className="text-muted">“{s.note}”</div>}</span>
             </li>))}</ol> : <p className="text-muted">Memuat…</p>}
         </div>
-        <div className="flex justify-end gap-2"><button className="btn" onClick={onClose}>Tutup</button>{row.can_cancel && <button className="btn text-brand" onClick={onCancel}>Batalkan</button>}</div>
+        <div className="flex justify-end gap-2"><button className="btn" onClick={onClose}>Tutup</button>{row.can_cancel && <button className="btn text-danger" onClick={onCancel}>Batalkan</button>}</div>
       </div>
     </Modal>
   )
@@ -359,7 +359,7 @@ function LeaveForm({ types, year, businessId, initialStart, onClose, onSaved }: 
   const noEmployee = !user?.employee_id && !opts.length
   return (
     <Modal open onClose={onClose} title="Ajukan Cuti / Izin">
-      {noEmployee ? <p className="text-xs text-brand">Akun Anda belum terhubung ke data karyawan. Hubungi HR.</p> : (
+      {noEmployee ? <p className="text-xs text-danger">Akun Anda belum terhubung ke data karyawan. Hubungi HR.</p> : (
         <div className="space-y-3 text-xs">
           {forOthers && (
             <label className="block font-semibold">Karyawan <span className="font-normal text-muted">(diri sendiri atau bawahan)</span>
@@ -371,28 +371,28 @@ function LeaveForm({ types, year, businessId, initialStart, onClose, onSaved }: 
           <label className="block font-semibold">Jenis
             <select className="input w-full mt-1" value={typeId} onChange={(e) => setTypeId(Number(e.target.value))}>{types.filter((t) => t.is_active).map((t) => <option key={t.id} value={t.id}>{t.name}{t.deducts_balance ? ' (potong saldo)' : ''}{t.requires_attachment ? ' · wajib lampiran' : ''}</option>)}</select>
           </label>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="block font-semibold">Tanggal Mulai<div className="mt-1 font-normal"><DateField value={start} businessId={empBusinessId} onChange={(v) => { setStart(v); if (!end || end < v) setEnd(v) }} /></div></label>
             <label className="block font-semibold">Tanggal Selesai<div className="mt-1 font-normal"><DateField value={end} min={start} businessId={empBusinessId} onChange={setEnd} /></div></label>
           </div>
           {rosterInfo?.is_roster && rosterInfo.window && type?.category === 'cuti' && (
             <div className="rounded-lg border border-warn/40 bg-warn-soft p-2.5">
-              <div className="font-bold text-gray-900">Karyawan roster</div>
-              <div className="text-gray-700">Cuti tahunan hanya dapat bersambung <b>tepat setelah masa OFF</b>: OFF {fmt(rosterInfo.window.off_start)} – {fmt(rosterInfo.window.off_end)}, cuti dimulai <b>{fmt(rosterInfo.window.leave_from)}</b>. Tidak bisa di masa kerja atau sebelum OFF. Sakit dan izin tidak dibatasi.</div>
+              <div className="font-bold text-ink">Karyawan roster</div>
+              <div className="text-ink/80">Cuti tahunan hanya dapat bersambung <b>tepat setelah masa OFF</b>: OFF {fmt(rosterInfo.window.off_start)} – {fmt(rosterInfo.window.off_end)}, cuti dimulai <b>{fmt(rosterInfo.window.leave_from)}</b>. Tidak bisa di masa kerja atau sebelum OFF. Sakit dan izin tidak dibatasi.</div>
               <button type="button" className="btn mt-1.5" onClick={() => { const d = rosterInfo.window!.leave_from.slice(0, 10); setStart(d); setEnd(d) }}>Isi mulai {fmt(rosterInfo.window.leave_from)}</button>
             </div>
           )}
-          {calc?.error && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2">{calc.error}</div>}
+          {calc?.error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{calc.error}</div>}
           {calc && (
             <div className="text-muted space-y-1">
-              <div>Durasi: <b className="text-gray-800">{calc.days} hari kerja</b>{type?.deducts_balance && calc.days > 0 && <> · akan memotong saldo cuti</>}</div>
+              <div>Durasi: <b className="text-ink">{calc.days} hari kerja</b>{type?.deducts_balance && calc.days > 0 && <> · akan memotong saldo cuti</>}</div>
               {calc.skipped.length > 0 && <div className="text-[11px]">Tidak dihitung: {skippedText(calc.skipped)}</div>}
             </div>
           )}
           <label className="block font-semibold">Alasan<textarea className="input w-full mt-1" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Keperluan keluarga, sakit, dll." /></label>
 
           <div>
-            <div className="font-semibold mb-1">Lampiran dokumen {needFile ? <span className="text-brand">(wajib — mis. surat dokter)</span> : <span className="font-normal text-muted">(opsional)</span>}</div>
+            <div className="font-semibold mb-1">Lampiran dokumen {needFile ? <span className="text-danger">(wajib — mis. surat dokter)</span> : <span className="font-normal text-muted">(opsional)</span>}</div>
             {files.map((f, i) => (
               <div key={i} className="flex items-center gap-2 border border-line rounded-lg px-2 py-1 mb-1"><Paperclip className="w-3 h-3 text-muted" /><span className="flex-1 truncate">{f.name}</span><span className="text-muted">{Math.max(1, Math.round(f.size / 1024))} KB</span>
                 <button type="button" className="p-0.5" onClick={() => setFiles(files.filter((_, j) => j !== i))}><X className="w-3.5 h-3.5" /></button></div>
@@ -401,7 +401,7 @@ function LeaveForm({ types, year, businessId, initialStart, onClose, onSaved }: 
             <span className="text-muted ml-2">JPG/PNG/WEBP/PDF, maks 10 MB per file</span>
           </div>
 
-          <div className="border border-line rounded-lg p-3 bg-gray-50/60 space-y-2">
+          <div className="border border-line rounded-lg p-3 bg-sunken/60 space-y-2">
             <div className="font-bold">Persetujuan</div>
             {assigned ? (
               <div className="text-ok bg-ok-soft rounded px-2 py-1.5">Hanya <b>{assignedPerson?.name}</b> yang menyetujui. Persetujuan atasan (n+1) tidak diperlukan.</div>
@@ -415,7 +415,7 @@ function LeaveForm({ types, year, businessId, initialStart, onClose, onSaved }: 
             </label>
           </div>
 
-          {error && <div className="text-brand bg-brand-soft rounded-lg px-3 py-2">{error}</div>}
+          {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}
           <div className="flex justify-end gap-2"><button className="btn" onClick={onClose}>Batal</button><button className="btn-primary" disabled={busy || !!calc?.error} onClick={submit}>{busy ? 'Mengirim…' : 'Ajukan'}</button></div>
         </div>
       )}

@@ -111,26 +111,31 @@ type memberView struct {
 
 type taskView struct {
 	models.Task
-	Status          string       `json:"status"`     // effective status (derived for parents)
-	OwnStatus       string       `json:"own_status"` // the stored status
-	AssignerName    string       `json:"assigner_name"`
-	PICName         string       `json:"pic_name"`
-	UnitName        string       `json:"unit_name"`
-	ProjectName     string       `json:"project_name"`
-	ParentTitle     string       `json:"parent_title"`
-	Progress        float64      `json:"progress"`
-	IsParent        bool         `json:"is_parent"`
-	KidsTotal       int          `json:"kids_total"`
-	KidsDone        int          `json:"kids_done"`
-	Overdue         bool         `json:"overdue"`
-	Members         []memberView `json:"members"`
-	AttachmentCount int          `json:"attachment_count"`
-	CommentCount    int          `json:"comment_count"`
-	WaitingFor      string       `json:"waiting_for"`
-	KPITitle        string       `json:"kpi_title"`
-	CanManage       bool         `json:"can_manage"`
-	CanWork         bool         `json:"can_work"` // PIC or manager: may change status / complete
-	Depth           int          `json:"depth"`
+	Status          string                      `json:"status"`     // effective status (derived for parents)
+	OwnStatus       string                      `json:"own_status"` // the stored status
+	AssignerName    string                      `json:"assigner_name"`
+	PICName         string                      `json:"pic_name"`
+	UnitName        string                      `json:"unit_name"`
+	ProjectName     string                      `json:"project_name"`
+	ParentTitle     string                      `json:"parent_title"`
+	Progress        float64                     `json:"progress"`
+	IsParent        bool                        `json:"is_parent"`
+	KidsTotal       int                         `json:"kids_total"`
+	KidsDone        int                         `json:"kids_done"`
+	Overdue         bool                        `json:"overdue"`
+	Members         []memberView                `json:"members"`
+	AttachmentCount int                         `json:"attachment_count"`
+	CommentCount    int                         `json:"comment_count"`
+	WaitingFor      string                      `json:"waiting_for"`
+	KPITitle        string                      `json:"kpi_title"`
+	CanManage       bool                        `json:"can_manage"`
+	CanWork         bool                        `json:"can_work"` // PIC or manager: may change status / complete
+	IsPIC           bool                        `json:"is_pic"`   // the caller is the PIC (only the PIC asks for a deadline change)
+	Depth           int                         `json:"depth"`
+	Timeliness      string                      `json:"timeliness"`       // late_start | overdue | on_track | done_on_time | done_late
+	TimelinessLabel string                      `json:"timeliness_label"` // Terlambat Mulai | Overdue | On Track | Selesai …
+	UnitPath        []unitAt                    `json:"unit_path"`        // the PIC's unit and its ancestors, root first (grouping per organisation level)
+	PendingDeadline *models.TaskDeadlineRequest `json:"pending_deadline"`
 }
 
 func decorateTasks(c *gin.Context, ts []models.Task, calcs map[uint]*taskCalc) []taskView {
@@ -149,12 +154,17 @@ func decorateTasks(c *gin.Context, ts []models.Task, calcs map[uint]*taskCalc) [
 	}
 	empName := map[uint]string{}
 	unitName := map[uint]string{}
+	picUnit := map[uint]uint{}
+	chains := unitChains()
 	var es []models.Employee
 	database.DB.Preload("Unit").Select("id, name, unit_id").Find(&es)
 	for _, e := range es {
 		empName[e.ID] = e.Name
 		if e.Unit != nil {
 			unitName[e.ID] = e.Unit.Name
+		}
+		if e.UnitID != nil {
+			picUnit[e.ID] = *e.UnitID
 		}
 	}
 	var units []models.OrgUnit
@@ -235,8 +245,13 @@ func decorateTasks(c *gin.Context, ts []models.Task, calcs map[uint]*taskCalc) [
 		}
 		if t.UnitID != nil {
 			v.UnitName = unitByID[*t.UnitID]
+			v.UnitPath = chains[*t.UnitID]
 		} else {
 			v.UnitName = unitName[t.PICID]
+			v.UnitPath = chains[picUnit[t.PICID]]
+		}
+		if v.UnitPath == nil {
+			v.UnitPath = []unitAt{}
 		}
 		if t.ProjectID != nil {
 			v.ProjectName = projName[*t.ProjectID]
@@ -258,8 +273,10 @@ func decorateTasks(c *gin.Context, ts []models.Task, calcs map[uint]*taskCalc) [
 		if t.DueDate != nil && day(*t.DueDate).Before(now) && v.Status != "done" {
 			v.Overdue = true
 		}
+		v.Timeliness = taskTimeliness(v.Status, t.StartDate, t.DueDate, t.CompletedAt, now)
+		v.TimelinessLabel = timelinessLabel[v.Timeliness]
 		r := rolesOn(c, t)
-		v.CanManage, v.CanWork = r.Manager, r.Manager || r.PIC
+		v.CanManage, v.CanWork, v.IsPIC = r.Manager, r.Manager || r.PIC, r.PIC
 		out = append(out, v)
 	}
 	return out
@@ -335,10 +352,13 @@ func ListTasks(c *gin.Context) {
 	views := decorateTasks(c, ts, calcsFor(ts))
 
 	now := today()
-	statusF, dl := c.Query("status"), c.Query("deadline")
+	statusF, dl, tmF := c.Query("status"), c.Query("deadline"), c.Query("timeliness")
 	out := make([]taskView, 0, len(views))
 	for _, v := range views {
 		if statusF != "" && v.Status != statusF {
+			continue
+		}
+		if tmF != "" && v.Timeliness != tmF {
 			continue
 		}
 		if dl != "" {
@@ -380,6 +400,9 @@ func ListTasks(c *gin.Context) {
 		if v.Overdue {
 			sum["overdue"]++
 		}
+		if v.Timeliness == tmLateStart {
+			sum["late_start"]++
+		}
 		if v.Status == "review" {
 			sum["review"]++
 		}
@@ -387,28 +410,93 @@ func ListTasks(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": out, "summary": sum})
 }
 
-// Assignees: who the caller may give a task to — themselves, their subordinates (everyone for admin/HR).
-func TaskAssignees(c *gin.Context) {
-	q := employeeScope(c, database.DB.Model(&models.Employee{}))
-	var emps []models.Employee
-	q.Preload("Unit").Order("employees.name").Limit(1000).Find(&emps)
-	type row struct {
-		ID         uint   `json:"id"`
-		Name       string `json:"name"`
-		BusinessID uint   `json:"business_id"`
-		UnitID     *uint  `json:"unit_id"`
-		UnitName   string `json:"unit_name"`
-		NIK        string `json:"nik"`
-	}
-	out := make([]row, 0, len(emps))
+type personRow struct {
+	ID         uint   `json:"id"`
+	Name       string `json:"name"`
+	BusinessID uint   `json:"business_id"`
+	UnitID     *uint  `json:"unit_id"`
+	UnitName   string `json:"unit_name"`
+	NIK        string `json:"nik"`
+	Relation   string `json:"relation"` // diri | bawahan | atasan | lainnya
+}
+
+func personRows(emps []models.Employee, relation func(id uint) string) []personRow {
+	out := make([]personRow, 0, len(emps))
 	for _, e := range emps {
-		r := row{ID: e.ID, Name: e.Name, BusinessID: e.BusinessID, UnitID: e.UnitID, NIK: e.NIK}
+		r := personRow{ID: e.ID, Name: e.Name, BusinessID: e.BusinessID, UnitID: e.UnitID, NIK: e.NIK, Relation: relation(e.ID)}
 		if e.Unit != nil {
 			r.UnitName = e.Unit.Name
 		}
 		out = append(out, r)
 	}
-	c.JSON(http.StatusOK, out)
+	return out
+}
+
+// Assignees: who the caller may make the PIC — themselves, their subordinates, and (the "jenjang atasan") every
+// superior up to the top of their reporting line. Everyone for admin/HR.
+func TaskAssignees(c *gin.Context) {
+	q := employeeScope(c, database.DB.Model(&models.Employee{}))
+	var emps []models.Employee
+	q.Preload("Unit").Order("employees.name").Limit(1000).Find(&emps)
+	me := myEmployeeID(c)
+	have := map[uint]bool{}
+	for _, e := range emps {
+		have[e.ID] = true
+	}
+	up := map[uint]bool{}
+	if me != nil && !isGroupLevel(c) {
+		if ids := uplineIDs(*me); len(ids) > 0 {
+			var sups []models.Employee
+			scopeBusiness(c, database.DB.Model(&models.Employee{}), "employees.business_id").Where("employees.status = 'Aktif' AND employees.id IN ?", ids).Preload("Unit").Find(&sups)
+			for _, s := range sups {
+				up[s.ID] = true
+				if !have[s.ID] {
+					emps = append(emps, s)
+				}
+			}
+		}
+	}
+	c.JSON(http.StatusOK, personRows(emps, func(id uint) string {
+		switch {
+		case me != nil && *me == id:
+			return "diri"
+		case up[id]:
+			return "atasan"
+		case me != nil:
+			return "bawahan"
+		}
+		return "lainnya"
+	}))
+}
+
+// TaskGivers: who may be named as the one who gave the instruction (Pemberi Tugas) — anyone in the caller's
+// businesses EXCEPT the people below the person entering the task.
+func TaskGivers(c *gin.Context) {
+	q := scopeBusiness(c, database.DB.Model(&models.Employee{}), "employees.business_id").Where("employees.status = 'Aktif'")
+	me := myEmployeeID(c)
+	if me != nil {
+		q = q.Where("employees.id NOT IN "+downlineSQL, *me)
+	}
+	var emps []models.Employee
+	q.Preload("Unit").Order("employees.name").Limit(2000).Find(&emps)
+	c.JSON(http.StatusOK, personRows(emps, func(id uint) string {
+		if me != nil && *me == id {
+			return "diri"
+		}
+		if me != nil && inUpline(*me, id) {
+			return "atasan"
+		}
+		return "lainnya"
+	}))
+}
+
+// canAssignPIC: yourself, your subordinates, or any of your superiors; admin/HR anyone.
+func canAssignPIC(c *gin.Context, pic uint) bool {
+	if isGroupLevel(c) {
+		return true
+	}
+	me := myEmployeeID(c)
+	return me != nil && (*me == pic || inDownline(*me, pic) || inUpline(*me, pic))
 }
 
 // ---- get ----
@@ -453,7 +541,14 @@ func GetTask(c *gin.Context) {
 	if ancestors == nil {
 		ancestors = []anc{}
 	}
-	c.JSON(http.StatusOK, gin.H{"task": view, "children": children, "ancestors": ancestors, "comments": comments, "attachments": atts})
+	history, requests := taskExtras(t)
+	for i := range requests {
+		if requests[i].Status == "Pending Approval" {
+			view.PendingDeadline = &requests[i]
+			break
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"task": view, "children": children, "ancestors": ancestors, "comments": comments, "attachments": atts, "history": history, "deadline_requests": requests})
 }
 
 // ---- create / update ----
@@ -526,8 +621,8 @@ func fillTask(c *gin.Context, in taskInput, t *models.Task, calc *taskCalc, full
 		if t.ApprovalLevels < 1 {
 			t.ApprovalLevels = 1
 		}
-		if t.ApprovalLevels > 3 {
-			return "jenjang approval maksimal 3"
+		if t.ApprovalLevels > hardMaxApprovalLevels {
+			return fmt.Sprintf("jenjang approval maksimal %d", hardMaxApprovalLevels)
 		}
 		t.ApproverUserID = in.ApproverUserID
 		if in.ApproverUserID != nil {
@@ -543,6 +638,7 @@ func fillTask(c *gin.Context, in taskInput, t *models.Task, calc *taskCalc, full
 
 // resolveStructure decides business / project / parent for a task and checks the PIC. Returns an error message or "".
 func resolveStructure(c *gin.Context, in taskInput, t *models.Task, calc *taskCalc, isNew bool) string {
+	old := *t // values before this edit (zero for a new task)
 	var pic models.Employee
 	if database.DB.Limit(1).Find(&pic, in.PICID).Error != nil || pic.ID == 0 || pic.Status != "Aktif" {
 		return "PIC tidak ditemukan atau tidak aktif"
@@ -593,6 +689,9 @@ func resolveStructure(c *gin.Context, in taskInput, t *models.Task, calc *taskCa
 	if !employeeInBusiness(pic.ID, t.BusinessID) {
 		return "PIC bukan bagian dari bisnis tugas/proyek ini"
 	}
+	if t.RequiresApproval && t.ApproverUserID == nil && t.ApprovalLevels > maxApprovalLevels(pic.ID) {
+		return fmt.Sprintf("jenjang atasan PIC maksimal %d tingkat (sampai atasan tertinggi PIC)", maxApprovalLevels(pic.ID))
+	}
 	t.PICID = pic.ID
 	// "terkait KPI": the task counts toward one of the PIC's auto KPI items
 	t.KPIID = nil
@@ -613,9 +712,9 @@ func resolveStructure(c *gin.Context, in taskInput, t *models.Task, calc *taskCa
 			t.UnitID = pic.UnitID // unit of another business → fall back to the PIC's own
 		}
 	}
-	// weight ("bobot") only means something for a top-level project task
+	// weight ("bobot") = share among siblings: for a sub task, or a top-level project task
 	t.Weight = nil
-	if t.ParentID == nil && t.ProjectID != nil && in.Weight != nil && *in.Weight > 0 {
+	if (t.ParentID != nil || t.ProjectID != nil) && in.Weight != nil && *in.Weight > 0 {
 		if *in.Weight > 100 {
 			return "bobot maksimal 100"
 		}
@@ -627,6 +726,10 @@ func resolveStructure(c *gin.Context, in taskInput, t *models.Task, calc *taskCa
 		var a models.Employee
 		if database.DB.Select("id").Where("status = 'Aktif'").Limit(1).Find(&a, *t.AssignerID).Error != nil || a.ID == 0 {
 			return "pemberi tugas tidak ditemukan"
+		}
+		// anyone may be named, except people below the person who is entering the task
+		if me := myEmployeeID(c); me != nil && *t.AssignerID != *me && inDownline(*me, *t.AssignerID) && (isNew || old.AssignerID == nil || *old.AssignerID != *t.AssignerID) {
+			return "pemberi tugas tidak boleh bawahan Anda; pilih diri Anda, atasan, atau rekan lain"
 		}
 	}
 	return ""
@@ -675,9 +778,9 @@ func CreateTask(c *gin.Context) {
 		return
 	}
 	me := myEmployeeID(c)
-	// assign to yourself or a subordinate; admin/HR to anyone
-	if !isGroupLevel(c) && !(me != nil && (*me == in.PICID || inDownline(*me, in.PICID))) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Anda hanya dapat memberi tugas kepada diri sendiri atau bawahan Anda"})
+	// the PIC may be yourself, a subordinate, or any superior up the chain; admin/HR anyone
+	if !canAssignPIC(c, in.PICID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "PIC harus diri Anda, bawahan, atau atasan Anda (sampai level tertinggi)"})
 		return
 	}
 	if in.AssignerID == nil && me != nil && *me != in.PICID {
@@ -700,6 +803,7 @@ func CreateTask(c *gin.Context) {
 		if errMsg = syncMembers(tx, t, in.MemberIDs, in.WatcherIDs); errMsg != "" {
 			return fmt.Errorf("%s", errMsg)
 		}
+		logTask(tx, t.ID, uid(c), "created", "", t.Title, "")
 		return nil
 	})
 	if err != nil {
@@ -742,6 +846,7 @@ func UpdateTask(c *gin.Context) {
 	}
 	calc := calcFor(t.BusinessID)
 	oldPIC := t.PICID
+	before := t // for the change log
 	if r.Manager {
 		if t.Status == "review" && in.PICID != t.PICID {
 			c.JSON(http.StatusConflict, gin.H{"error": "tugas sedang menunggu approval; batalkan penyelesaian sebelum mengganti PIC"})
@@ -750,11 +855,9 @@ func UpdateTask(c *gin.Context) {
 		if in.PICID == 0 {
 			in.PICID = t.PICID
 		}
-		if in.PICID != t.PICID && !isGroupLevel(c) {
-			if me := myEmployeeID(c); me == nil || !(*me == in.PICID || inDownline(*me, in.PICID)) {
-				c.JSON(http.StatusForbidden, gin.H{"error": "PIC baru harus diri Anda atau bawahan Anda"})
-				return
-			}
+		if in.PICID != t.PICID && !canAssignPIC(c, in.PICID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "PIC baru harus diri Anda, bawahan, atau atasan Anda (sampai level tertinggi)"})
+			return
 		}
 		if msg := fillTask(c, in, &t, calc, true); msg != "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
@@ -776,11 +879,12 @@ func UpdateTask(c *gin.Context) {
 		}
 		// children follow their parent's project
 		for _, d := range calc.descendants(t.ID) {
-			tx.Model(&models.Task{}).Where("id = ?", d).Updates(map[string]any{"project_id": t.ProjectID, "weight": nil})
+			tx.Model(&models.Task{}).Where("id = ?", d).Update("project_id", t.ProjectID)
 		}
 		if msg := syncMembers(tx, t, in.MemberIDs, in.WatcherIDs); msg != "" {
 			return fmt.Errorf("%s", msg)
 		}
+		logTaskChanges(tx, uid(c), before, t)
 		return nil
 	})
 	if err != nil {
@@ -817,6 +921,11 @@ func DeleteTask(c *gin.Context) {
 		tx.Where("task_id IN ?", ids).Delete(&models.TaskMember{})
 		tx.Where("task_id IN ?", ids).Delete(&models.TaskAttachment{})
 		tx.Where("task_id IN ?", ids).Delete(&models.TaskComment{})
+		tx.Exec(`UPDATE approval_steps SET status = 'Cancelled' WHERE status IN ('Pending','Waiting') AND request_id IN
+			(SELECT id FROM approval_requests WHERE request_type = 'task_deadline' AND status = 'Pending' AND ref_id IN (SELECT id FROM task_deadline_requests WHERE task_id IN ?))`, ids)
+		tx.Exec(`UPDATE approval_requests SET status = 'Cancelled' WHERE request_type = 'task_deadline' AND status = 'Pending' AND ref_id IN (SELECT id FROM task_deadline_requests WHERE task_id IN ?)`, ids)
+		tx.Where("task_id IN ?", ids).Delete(&models.TaskDeadlineRequest{})
+		tx.Where("task_id IN ?", ids).Delete(&models.TaskHistory{})
 		return tx.Where("id IN ?", ids).Delete(&models.Task{}).Error
 	})
 	for _, f := range files {
@@ -858,7 +967,14 @@ func SetTaskStatus(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "tugas sudah diajukan/ditutup; batalkan penyelesaian atau buka kembali dulu"})
 		return
 	}
-	database.DB.Model(&models.Task{}).Where("id = ?", t.ID).Update("status", in.Status)
+	upd := map[string]any{"status": in.Status}
+	if in.Status == "in_progress" && t.ActualStart == nil {
+		upd["actual_start"] = time.Now()
+	}
+	database.DB.Transaction(func(tx *gorm.DB) error {
+		logTask(tx, t.ID, uid(c), "status", statusText(t.Status), statusText(in.Status), "")
+		return tx.Model(&models.Task{}).Where("id = ?", t.ID).Updates(upd).Error
+	})
 	audit(c, "status:"+in.Status, "task", t.ID)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
@@ -895,9 +1011,16 @@ func CompleteTask(c *gin.Context) {
 	database.DB.Select("id, name").Limit(1).Find(&pic, t.PICID)
 	err := database.DB.Transaction(func(tx *gorm.DB) error {
 		addTaskComment(tx, t.ID, uid(c), in.Note)
+		prev := t.Status
+		if t.ActualStart == nil {
+			now := time.Now()
+			t.ActualStart = &now
+		}
+		t.ProgressPct = 100
 		if !t.RequiresApproval {
 			now := time.Now()
 			t.Status, t.CompletedAt = "done", &now
+			logTask(tx, t.ID, uid(c), "status", statusText(prev), statusText("done"), in.Note)
 			return tx.Save(&t).Error
 		}
 		var picUser models.User
@@ -923,6 +1046,7 @@ func CompleteTask(c *gin.Context) {
 			return err
 		}
 		t.Status, t.ApprovalID = "review", &req.ID
+		logTask(tx, t.ID, uid(c), "status", statusText(prev), statusText("review"), in.Note)
 		return tx.Save(&t).Error
 	})
 	if err != nil {
@@ -954,6 +1078,7 @@ func CancelCompletion(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	logTask(database.DB, t.ID, uid(c), "status", statusText("review"), statusText("in_progress"), "penyelesaian ditarik")
 	audit(c, "cancel_completion", "task", t.ID)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
@@ -978,6 +1103,7 @@ func ReopenTask(c *gin.Context) {
 	}
 	database.DB.Transaction(func(tx *gorm.DB) error {
 		addTaskComment(tx, t.ID, uid(c), "Dibuka kembali. "+in.Note)
+		logTask(tx, t.ID, uid(c), "status", statusText("done"), statusText("in_progress"), "dibuka kembali. "+in.Note)
 		return tx.Model(&models.Task{}).Where("id = ?", t.ID).Updates(map[string]any{"status": "in_progress", "completed_at": nil, "approval_id": nil}).Error
 	})
 	audit(c, "reopen", "task", t.ID)
@@ -993,14 +1119,17 @@ func taskApprovalHook(tx *gorm.DB, req *models.ApprovalRequest, outcome string) 
 	var pu models.User
 	tx.Where("employee_id = ? AND is_active = true", t.PICID).Limit(1).Find(&pu)
 	link := fmt.Sprintf("/tasks?open=%d", t.ID)
+	actor := lastActor(tx, req.ID)
 	switch outcome {
 	case approval.Approved:
 		now := time.Now()
+		logTask(tx, t.ID, actor, "status", statusText("review"), statusText("done"), "penyelesaian disetujui")
 		t.Status, t.CompletedAt = "done", &now
 		if pu.ID != 0 {
 			notify(pu.ID, "task_approved", "Penyelesaian tugas disetujui", t.Title, link, fmt.Sprintf("task-approved:%d:%d", t.ID, req.ID))
 		}
 	case approval.Rejected:
+		logTask(tx, t.ID, actor, "status", statusText("review"), statusText("in_progress"), "penyelesaian ditolak: "+req.DecisionNote)
 		t.Status, t.CompletedAt = "in_progress", nil
 		addTaskComment(tx, t.ID, req.RequesterUserID, "Penyelesaian ditolak: "+req.DecisionNote)
 		if pu.ID != 0 {

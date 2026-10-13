@@ -1,8 +1,15 @@
-import type { TaskRow, TaskStatus } from '../../types'
+import type { TaskRow, TaskStatus, Timeliness } from '../../types'
+import { cssColor } from '../../utils/theme'
 
 export const STATUS_LABEL: Record<TaskStatus, string> = { todo: 'To Do', in_progress: 'In Progress', review: 'Menunggu Approval', done: 'Selesai' }
 export const STATUS_TONE: Record<TaskStatus, 'gray' | 'blue' | 'amber' | 'green'> = { todo: 'gray', in_progress: 'blue', review: 'amber', done: 'green' }
-export const STATUS_BAR: Record<TaskStatus, string> = { todo: '#9aa3ad', in_progress: '#4f7fc6', review: '#c68a2a', done: '#2e9d65' }
+export const STATUS_BAR: Record<TaskStatus, string> = { todo: cssColor('muted'), in_progress: cssColor('info'), review: cssColor('warn'), done: cssColor('ok') }
+
+// Ketepatan: Terlambat Mulai / Overdue / On Track (+ Selesai tepat waktu / terlambat for closed tasks)
+export const TIMELINESS_TONE: Record<Exclude<Timeliness, ''>, 'amber' | 'red' | 'blue' | 'green'> = { late_start: 'amber', overdue: 'red', on_track: 'blue', done_on_time: 'green', done_late: 'amber' }
+export const TIMELINESS_LABEL: Record<Exclude<Timeliness, ''>, string> = { late_start: 'Terlambat Mulai', overdue: 'Overdue', on_track: 'On Track', done_on_time: 'Selesai Tepat Waktu', done_late: 'Selesai Terlambat' }
+/** a finished task has its title struck through */
+export const doneClass = (t: Pick<TaskRow, 'status'>) => (t.status === 'done' ? 'line-through text-muted decoration-1' : '')
 
 export const err = (e: any, f: string) => e.response?.data?.error || f
 export const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`

@@ -3,7 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#17324d" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script>
+      // apply the saved / system theme before first paint (no light→dark flash)
+      (function () {
+        try {
+          var t = localStorage.getItem('theme') || 'system';
+          if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.classList.add('dark');
+        } catch (e) {}
+      })();
+    </script>
     <title>CORE — Business Operations Platform</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

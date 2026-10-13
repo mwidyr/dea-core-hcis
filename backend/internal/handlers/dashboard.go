@@ -13,8 +13,28 @@ import (
 // Dashboard aggregates what the caller may see (business filter + their own reporting scope).
 func Dashboard(c *gin.Context) {
 	now := today()
+	// "Tim Saya" (the caller's reports, or the whole business for admin/HR) or "Personal" (only themselves).
+	// People without a team can only see Personal.
+	canTeam := isGroupLevel(c) || hasDirectReports(c)
+	view := "me"
+	if canTeam && c.DefaultQuery("view", "team") == "team" {
+		view = "team"
+	}
 	emps := kpiEmployees(c) // active employees inside the caller's scope
-	out := gin.H{"scope": scopeName(c)}
+	if me := myEmployeeID(c); view == "me" {
+		mine := []models.Employee{}
+		for _, e := range emps {
+			if me != nil && e.ID == *me {
+				mine = append(mine, e)
+			}
+		}
+		emps = mine
+	}
+	out := gin.H{"scope": scopeName(c), "view": view, "can_team": canTeam}
+	taskScopeName := "all"
+	if view == "me" {
+		taskScopeName = "mine"
+	}
 
 	// people
 	tetap, kontrak, freelance, expiring := 0, 0, 0, 0
@@ -32,7 +52,7 @@ func Dashboard(c *gin.Context) {
 		}
 	}
 	var vacant int64
-	if isGroupLevel(c) {
+	if isGroupLevel(c) && view == "team" {
 		scopeBusiness(c, database.DB.Model(&models.Position{}), "positions.business_id").
 			Where("positions.id NOT IN (SELECT position_id FROM employee_placements WHERE position_id IS NOT NULL) AND positions.id NOT IN (SELECT position_id FROM employees WHERE position_id IS NOT NULL AND status = 'Aktif')").Count(&vacant)
 	}
@@ -68,7 +88,7 @@ func Dashboard(c *gin.Context) {
 
 	// tasks
 	var ts []models.Task
-	taskScope(c, "all").Find(&ts)
+	taskScope(c, taskScopeName).Find(&ts)
 	calcs := calcsFor(ts)
 	status := map[string]int{"todo": 0, "in_progress": 0, "review": 0, "done": 0}
 	overdue, dueWeek := 0, 0
@@ -150,6 +170,7 @@ func Dashboard(c *gin.Context) {
 	scopeBusiness(c, database.DB.Model(&models.Project{}), "projects.business_id").Where("projects.status = 'Aktif'").Order("projects.id DESC").Limit(50).Find(&ps)
 	pv := decorateProjects(c, ps)
 	sort.SliceStable(pv, func(i, j int) bool { return pv[i].Overdue > pv[j].Overdue })
+	allProjects := pv
 	if len(pv) > 5 {
 		pv = pv[:5]
 	}
@@ -218,6 +239,7 @@ func Dashboard(c *gin.Context) {
 		avg = r1(sum / n2f(n))
 	}
 	out["kpi"] = gin.H{"period": per.Label, "average": avg, "scored": n, "good": good, "attention": attn, "critical": crit, "top": top, "bottom": low, "settings": st, "closed": closeInfo(per.Key) != nil}
+	dashboardLayout(c, out, view, emps, ts, calcs, scores, st, now, allProjects, expiring, int(vacant))
 	out["generated_at"] = time.Now()
 	c.JSON(http.StatusOK, out)
 }

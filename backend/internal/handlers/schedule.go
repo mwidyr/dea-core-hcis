@@ -507,7 +507,8 @@ func SetRosterEmployees(c *gin.Context) {
 		}
 		for _, m := range in.Members {
 			st := day(m.StartCycle)
-			tx.Where("employee_id = ?", m.EmployeeID).Delete(&models.RosterAssignment{})
+			tx.Where("employee_id = ? AND roster_id <> ?", m.EmployeeID, ro.ID).Delete(&models.RosterAssignment{}) // one roster only: leave the previous one
+			tx.Where("employee_id = ? AND roster_id = ?", m.EmployeeID, ro.ID).Delete(&models.RosterAssignment{})
 			if err := tx.Create(&models.RosterAssignment{RosterID: ro.ID, EmployeeID: m.EmployeeID, StartCycle: &st}).Error; err != nil {
 				return err
 			}
@@ -515,6 +516,10 @@ func SetRosterEmployees(c *gin.Context) {
 		return nil
 	})
 	if err != nil {
+		if strings.Contains(err.Error(), "23505") || strings.Contains(strings.ToLower(err.Error()), "duplicate") { // two people assigning the same employee at the same moment
+			c.JSON(http.StatusConflict, gin.H{"error": "karyawan sudah ditetapkan ke roster lain oleh pengguna lain; muat ulang lalu coba lagi"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

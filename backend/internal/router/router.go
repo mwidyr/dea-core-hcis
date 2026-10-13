@@ -53,6 +53,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 	// public attendance page (no session): identity = NIK/email + password on every tap
 	api.GET("/public/clock", handlers.PublicClock)
 	api.POST("/public/attendance", handlers.PublicAttendance)
+	api.POST("/public/move-tomorrow", handlers.PublicMoveTomorrow)
 	api.GET("/drive/callback", handlers.DriveCallback) // Google redirects the browser here; the signed state protects it
 
 	auth := api.Group("", middleware.AuthMiddleware())
@@ -91,6 +92,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 
 	auth.GET("/attendance/daily", handlers.AttendanceDaily)
 	auth.GET("/attendance/recap", handlers.AttendanceRecap)
+	auth.GET("/attendance/day-summary", handlers.DaySummary)
 	auth.GET("/attendance/records/:id/photo", handlers.AttendancePhoto)
 	auth.GET("/attendance/schedule", handlers.AttendanceSchedule)
 	auth.GET("/attendance/manual", handlers.ListManualAttendance)
@@ -100,6 +102,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 	auth.POST("/work-calendars", handlers.SaveWorkCalendar)
 	auth.PUT("/work-calendars/:id", handlers.SaveWorkCalendar)
 	auth.DELETE("/work-calendars/:id", handlers.DeleteWorkCalendar)
+	auth.GET("/roster-schedule", handlers.RosterSchedule)
 	auth.GET("/rosters", handlers.ListRosters)
 	auth.POST("/rosters", handlers.SaveRoster)
 	auth.PUT("/rosters/:id", handlers.SaveRoster)
@@ -111,11 +114,15 @@ func Setup(cfg *config.Config) *gin.Engine {
 
 	auth.GET("/tasks", handlers.ListTasks)
 	auth.GET("/tasks/assignees", handlers.TaskAssignees)
+	auth.GET("/tasks/givers", handlers.TaskGivers)
 	auth.POST("/tasks", handlers.CreateTask)
 	auth.GET("/tasks/:id", handlers.GetTask)
 	auth.PUT("/tasks/:id", handlers.UpdateTask)
 	auth.DELETE("/tasks/:id", handlers.DeleteTask)
 	auth.POST("/tasks/:id/status", handlers.SetTaskStatus)
+	auth.PUT("/tasks/:id/progress", handlers.SetTaskProgress)
+	auth.POST("/tasks/:id/deadline-request", handlers.RequestDeadlineChange)
+	auth.POST("/tasks/:id/deadline-request/cancel", handlers.CancelDeadlineRequest)
 	auth.POST("/tasks/:id/complete", handlers.CompleteTask)
 	auth.POST("/tasks/:id/cancel-completion", handlers.CancelCompletion)
 	auth.POST("/tasks/:id/reopen", handlers.ReopenTask)
@@ -206,6 +213,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 	auth.POST("/businesses", middleware.RequirePerm("business.manage"), handlers.SaveBusiness)
 	auth.PUT("/businesses/:id", middleware.RequirePerm("business.manage"), handlers.SaveBusiness)
 	auth.DELETE("/businesses/:id", middleware.RequirePerm("business.manage"), handlers.DeleteBusiness)
+	auth.GET("/dashboard/activity", handlers.DashboardActivity)
 	auth.GET("/dashboard", handlers.Dashboard)
 	auth.GET("/drive/status", middleware.RequirePerm("drive.manage"), handlers.DriveStatus)
 	auth.GET("/drive/connect", middleware.RequirePerm("drive.manage"), handlers.DriveConnect)

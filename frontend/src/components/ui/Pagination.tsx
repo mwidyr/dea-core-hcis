@@ -46,7 +46,7 @@ export default function Pagination({ page, pageSize, total, onPage, onPageSize }
     if (n >= 1) onPageSize(Math.min(n, MAX_PAGE_SIZE))
   }
 
-  const btn = 'h-7 min-w-7 px-1.5 rounded-md border border-line text-xs grid place-items-center disabled:opacity-40 disabled:cursor-not-allowed enabled:hover:bg-gray-50'
+  const btn = 'h-7 min-w-7 px-1.5 rounded-md border border-line text-xs grid place-items-center disabled:opacity-40 disabled:cursor-not-allowed enabled:hover:bg-sunken'
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 pt-3 text-xs">
@@ -74,7 +74,7 @@ export default function Pagination({ page, pageSize, total, onPage, onPageSize }
         <button className={btn} disabled={cur <= 1} onClick={() => onPage(cur - 1)} title="Sebelumnya"><ChevronLeft className="w-3.5 h-3.5" /></button>
         {windowed(cur, last).map((p, i) =>
           p === '…' ? <span key={`e${i}`} className="px-1 text-muted">…</span> : (
-            <button key={p} className={`${btn} ${p === cur ? '!bg-brand !border-brand text-white font-bold' : ''}`} onClick={() => onPage(p)}>{p}</button>
+            <button key={p} className={`${btn} ${p === cur ? '!bg-brand !border-brand text-on-brand font-bold' : ''}`} onClick={() => onPage(p)}>{p}</button>
           ))}
         <button className={btn} disabled={cur >= last} onClick={() => onPage(cur + 1)} title="Berikutnya"><ChevronRight className="w-3.5 h-3.5" /></button>
         <button className={btn} disabled={cur >= last} onClick={() => onPage(last)} title="Halaman terakhir"><ChevronsRight className="w-3.5 h-3.5" /></button>

@@ -22,19 +22,19 @@ export default function MultiPick({ options, value, onChange, placeholder = 'Pil
   const toggle = (id: number) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id])
   return (
     <div className="relative" ref={box}>
-      <button type="button" disabled={disabled} onClick={() => setOpen((o) => !o)} className="input w-full text-left flex items-center gap-1.5 flex-wrap min-h-[34px] disabled:bg-gray-100">
+      <button type="button" disabled={disabled} onClick={() => setOpen((o) => !o)} className="input w-full text-left flex items-center gap-1.5 flex-wrap min-h-[34px] disabled:bg-tint">
         {sel.length ? sel.map((o) => (
-          <span key={o.id} className="inline-flex items-center gap-1 bg-gray-100 rounded-full pl-2 pr-1 py-0.5 text-[11px]">{o.label}
-            <span role="button" className="rounded-full hover:bg-gray-300 p-0.5" onClick={(e) => { e.stopPropagation(); if (!disabled) toggle(o.id) }}><X className="w-2.5 h-2.5" /></span></span>
+          <span key={o.id} className="inline-flex items-center gap-1 bg-tint rounded-full pl-2 pr-1 py-0.5 text-[11px]">{o.label}
+            <span role="button" className="rounded-full hover:bg-line p-0.5" onClick={(e) => { e.stopPropagation(); if (!disabled) toggle(o.id) }}><X className="w-2.5 h-2.5" /></span></span>
         )) : <span className="text-muted">{placeholder}</span>}
         <ChevronDown className="w-3.5 h-3.5 text-muted ml-auto shrink-0" />
       </button>
       {open && (
-        <div className="absolute z-30 mt-1 w-full bg-white border border-line rounded-lg shadow-xl p-2">
+        <div className="absolute z-30 mt-1 w-full bg-panel border border-line rounded-lg shadow-xl p-2">
           <input className="input w-full mb-1.5" placeholder="Cari…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
           <div className="max-h-48 overflow-auto">
             {list.map((o) => (
-              <label key={o.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-xs">
+              <label key={o.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-sunken cursor-pointer text-xs">
                 <input type="checkbox" checked={value.includes(o.id)} onChange={() => toggle(o.id)} /><span className="flex-1">{o.label}</span>{o.sub && <span className="text-muted text-[10.5px]">{o.sub}</span>}
               </label>
             ))}
