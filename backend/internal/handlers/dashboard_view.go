@@ -259,11 +259,12 @@ func teamTable(emps []models.Employee, byPIC map[uint]*picAgg, kpi map[uint]empS
 
 // personalBlock: the "Personal" dashboard — own attendance today, leave balance, open tasks.
 func personalBlock(c *gin.Context, ts []models.Task, calcs map[uint]*taskCalc, now time.Time) gin.H {
-	out := gin.H{}
+	out := gin.H{"linked": false}
 	me := myEmployeeID(c)
-	if me == nil {
+	if me == nil { // e.g. the admin account: it is not tied to an employee record, so there is no personal data
 		return out
 	}
+	out["linked"] = true
 	var emp models.Employee
 	database.DB.Preload("Position").Preload("Unit").Limit(1).Find(&emp, *me)
 	out["name"] = emp.Name

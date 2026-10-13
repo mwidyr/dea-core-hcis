@@ -152,7 +152,7 @@ export interface DashboardData {
   units?: { name: string; score: number; count: number }[]
   team?: { employee_id: number; name: string; unit: string; open: number; overdue: number; kpi: number | null; attendance: number | null }[]
   personal?: {
-    name: string; position?: string; pending_leave_mine: number
+    linked: boolean; name: string; position?: string; pending_leave_mine: number
     attendance_today: { status: string; check_in?: string; check_out?: string; late_minutes?: number; work_minutes?: number }
     leave: { remaining: number; used: number; pending: number; initial: number }
     my_tasks: { id: number; title: string; project: string; due: string; status: string; timeliness: string; timeliness_label: string; progress: number }[]

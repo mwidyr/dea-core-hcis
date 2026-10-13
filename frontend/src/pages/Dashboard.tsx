@@ -86,7 +86,19 @@ export default function Dashboard() {
   const presentPct = att.scheduled ? Math.round((att.present / att.scheduled) * 100) : 0
   const monthLabel = `${MONTHS[new Date().getMonth()]} ${new Date().getFullYear()}`
   const risky = d.project_rows.filter((p) => p.status === 'At Risk').length
-  const p = d.personal
+  const p = d.personal?.linked ? d.personal : undefined // an account without an employee record has no personal data
+
+  if (mine && !p) {
+    return (
+      <Layout title="Dashboard" subtitle="Ringkasan kondisi people, work dan performance" actions={actions}>
+        <div className="card p-8 text-center text-sm">
+          <b>Akun ini tidak terhubung ke data karyawan</b>
+          <p className="text-muted mt-1">Dashboard Personal menampilkan absensi, cuti, dan tugas milik karyawan. Tautkan akun ke karyawan di Settings, User & Hak Akses, atau pilih <b>Tim Saya</b>.</p>
+          {d.can_team && <button className="btn-primary mt-3" onClick={() => pick('team')}>Buka Tim Saya</button>}
+        </div>
+      </Layout>
+    )
+  }
 
   const kpis = mine && p ? [
     { label: 'Absensi Hari Ini', value: p.attendance_today.status, foot: p.attendance_today.check_in ? `Masuk ${hm(p.attendance_today.check_in)}${p.attendance_today.check_out ? ` · pulang ${hm(p.attendance_today.check_out)}` : ''}` : 'Belum tap in' },
