@@ -6,7 +6,10 @@ import Badge from '../components/ui/Badge'
 import Modal from '../components/ui/Modal'
 import StatCard from '../components/ui/StatCard'
 import Pagination from '../components/ui/Pagination'
-import DocGallery from '../components/employee/DocGallery'
+import Tabs from '../components/ui/Tabs'
+import CompetencyTab from '../components/employee/CompetencyTab'
+import ContractHistory from '../components/employee/ContractHistory'
+import DocumentsTab from '../components/employee/DocumentsTab'
 import { useAuthStore } from '../store/auth'
 import { bizParams, useBusinessStore } from '../store/business'
 import { deleteEmployee, getEmployee, getEmployees, setEmployeeStatus } from '../services/api'
@@ -32,6 +35,7 @@ export default function Employees() {
 
   const [detail, setDetail] = useState<Employee | null>(null)
   const [managerName, setManagerName] = useState('-')
+  const [detailTab, setDetailTab] = useState<'personal' | 'competency' | 'docs'>('personal')
   const [params, setParams] = useSearchParams()
   const [statusEdit, setStatusEdit] = useState<{ emp: Employee; status: string; note: string } | null>(null)
 
@@ -53,7 +57,7 @@ export default function Employees() {
   }, [])
 
   const openDetail = (e: Employee) => {
-    setDetail(e); setManagerName('-')
+    setDetail(e); setManagerName('-'); setDetailTab('personal')
     if (e.manager_id) getEmployee(e.manager_id).then((r) => setManagerName(r.data.name))
   }
 
@@ -130,18 +134,23 @@ export default function Employees() {
       </div>
 
       {/* ---- detail ---- */}
-      <Modal open={!!detail} onClose={() => setDetail(null)} title={detail?.name ?? ''}>
+      <Modal open={!!detail} onClose={() => setDetail(null)} title={detail?.name ?? ''} size="lg">
         {detail && (
           <div className="space-y-4">
+            {canEdit && <Tabs tabs={[{ id: 'personal', label: 'Data Personal' }, { id: 'competency', label: 'Kompetensi History' }, { id: 'docs', label: 'Foto & Dokumen' }]} value={detailTab} onChange={setDetailTab} />}
+            {detailTab === 'personal' && <>
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
               {[['Bisnis', detail.business?.name], ['Unit', detail.unit?.name], ['Jabatan', detail.position?.title], ['Lokasi', detail.location?.name],
                 ['NIK', detail.nik], ['Email', detail.email], ['Telepon', detail.phone], ['Tempat, Tgl Lahir', detail.birth_place || detail.birth_date ? `${detail.birth_place || '-'}, ${fmt(detail.birth_date)}` : '-'],
                 ['Jenis', detail.employee_type], ['Tanggal Masuk', fmt(detail.join_date)], ['Kontrak Berakhir', fmt(detail.contract_end)],
-                ['Atasan (n+1)', managerName], ['Penempatan', detail.placements?.length ? detail.placements.map((p) => `${p.business?.name}: ${p.position?.title}${p.is_primary ? ' (utama)' : ''}`).join(' · ') : '-'], ['Status', detail.status + (detail.status_note ? ` — ${detail.status_note}` : '')]].map(([k, v]) => (
+                ['Atasan (n+1)', managerName], ['Penempatan', detail.placements?.length ? detail.placements.map((p) => `${p.business?.name}: ${p.position?.title}${p.is_primary ? ' (utama)' : ''}`).join(' · ') : '-'], ['DOH (Tanggal Masuk Pertama)', fmt(detail.doh)], ['POH (Lokasi Perekrutan)', detail.place_of_hire], ['Masa Kerja', tenure(detail.doh)], ['Status', detail.status + (detail.status_note ? ` — ${detail.status_note}` : '')]].map(([k, v]) => (
                 <div key={k as string}><dt className="text-muted text-[10.5px]">{k}</dt><dd className="font-semibold">{v || '-'}</dd></div>
               ))}
             </dl>
-            {canEdit && <div><div className="text-[11px] font-bold mb-2">Foto & Dokumen</div><DocGallery empId={detail.id} /></div>}
+            {canEdit && <div><div className="text-[11px] font-bold mb-2">Histori Kontrak</div><ContractHistory empId={detail.id} canEdit={false} onChanged={() => {}} /></div>}
+            </>}
+            {canEdit && detailTab === 'competency' && <CompetencyTab empId={detail.id} canEdit={false} />}
+            {canEdit && detailTab === 'docs' && <DocumentsTab empId={detail.id} canEdit={false} />}
           </div>
         )}
       </Modal>
