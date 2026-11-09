@@ -10,16 +10,28 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// dashboardView picks "team" or "me": a super admin is always on the team view, someone without a team
+// always on Personal, everyone else gets what they asked for (team by default).
+func dashboardView(canTeam, canPersonal bool, asked string) string {
+	switch {
+	case !canPersonal:
+		return "team"
+	case !canTeam:
+		return "me"
+	case asked == "me":
+		return "me"
+	}
+	return "team"
+}
+
 // Dashboard aggregates what the caller may see (business filter + their own reporting scope).
 func Dashboard(c *gin.Context) {
 	now := today()
 	// "Tim Saya" (the caller's reports, or the whole business for admin/HR) or "Personal" (only themselves).
-	// People without a team can only see Personal.
+	// Everyone except a super admin has Personal; the toggle only shows when they also have a team.
 	canTeam := isGroupLevel(c) || hasDirectReports(c)
-	view := "me"
-	if canTeam && c.DefaultQuery("view", "team") == "team" {
-		view = "team"
-	}
+	canPersonal := role(c) != "super_admin"
+	view := dashboardView(canTeam, canPersonal, c.DefaultQuery("view", "team"))
 	emps := kpiEmployees(c) // active employees inside the caller's scope
 	if me := myEmployeeID(c); view == "me" {
 		mine := []models.Employee{}
@@ -30,7 +42,7 @@ func Dashboard(c *gin.Context) {
 		}
 		emps = mine
 	}
-	out := gin.H{"scope": scopeName(c), "view": view, "can_team": canTeam}
+	out := gin.H{"scope": scopeName(c), "view": view, "can_team": canTeam, "can_personal": canPersonal}
 	taskScopeName := "all"
 	if view == "me" {
 		taskScopeName = "mine"

@@ -17,7 +17,7 @@ export interface Employee {
   employee_type: string; contract_start?: string | null; contract_end: string | null; join_date: string | null
   status: 'Aktif' | 'Non aktif' | 'Suspend' | 'Tidak Bekerja'; status_note?: string; is_active: boolean; location_id?: number | null
   position?: Position; unit?: OrgUnit; location?: Location; business?: Business; placements?: Placement[]
-  contracts?: EmployeeContract[]; contract_count?: number; doh?: string | null; roster?: EmployeeRoster
+  manager_name?: string; contracts?: EmployeeContract[]; contract_count?: number; doh?: string | null; roster?: EmployeeRoster
 }
 export interface EmployeeRoster { id: number; name: string; pattern: string; start_time: string; end_time: string; location_id: number | null; location_name: string; start_cycle?: string }
 export interface RosterDayRow {
@@ -31,25 +31,33 @@ export interface EmployeeCompetency { id: number; employee_id: number; kind: str
 export interface EmployeeDocument { id: number; employee_id: number; contract_id?: number | null; label: string; file_name: string; mime_type: string; size: number; drive_status: string; created_at: string }
 
 export interface LeaveType { id: number; name: string; category: 'cuti' | 'izin' | 'sakit'; default_days: number; deducts_balance: boolean; requires_attachment: boolean; is_active: boolean }
+export type ApprovalKind = 'n+1' | 'assigned' | 'fallback' | 'direct_manager' | 'position' | 'hr' | 'hr_superior'
+export interface ChainStep { level: number; name: string; kind: ApprovalKind; status: string }
+export interface PreviewStep { level: number; user_id: number; name: string; role?: string; kind: ApprovalKind; position?: string }
+export interface FlowStep { kind: 'direct_manager' | 'position' | 'hr' | 'hr_superior'; approver_position_id: number | null; position_title?: string }
+export interface ApprovalFlow { id?: number; name: string; request_type: string; business_id: number | null; is_active: boolean; steps: FlowStep[]; requester_position_ids: number[]; requester_titles?: string[]; is_default?: boolean }
+export interface FlowType { key: string; label: string }
 export interface LeaveRow {
   id: number; employee_id: number; employee_name: string; unit_name: string; business_name: string
   type_id: number; type_name: string; category: string
   start_date: string; end_date: string; days: number; back_date: string; reason: string
   status: 'Pending Approval' | 'Disetujui' | 'Ditolak' | 'Dibatalkan'; time_state: string; approval_id: number | null
   attachment_count: number; waiting_for: string; can_decide: boolean; can_cancel: boolean
+  employee_nik: string; position_name: string; chain: ChainStep[]
 }
 export interface LeaveBalanceRow { employee_id: number; name: string; unit_name: string; business_name: string; business_id: number; year: number; initial: number; added: number; used: number; pending: number; collective: number; remaining: number; expiry: string; can_grant: boolean }
 export interface LeaveSummary { active: number; off: number; cuti: number; izin: number; sakit: number; working: number; pending: number }
-export interface ApprovalStep { id: number; level: number; approver_user_id: number; approver_name: string; kind: 'n+1' | 'assigned' | 'fallback'; status: string; acted_by_name: string; acted_at: string | null; note: string }
+export interface ApprovalStep { id: number; level: number; approver_user_id: number; approver_name: string; kind: ApprovalKind; status: string; acted_by_name: string; acted_at: string | null; note: string }
 export interface ApprovalRequest {
   id: number; business_id: number; request_type: string; ref_id: number; title: string; summary: string
   status: 'Pending' | 'Approved' | 'Rejected' | 'Cancelled'; requester_name: string; created_at: string; decided_at: string | null
   decision_note: string; current_level: number; steps: ApprovalStep[]
+  requester_employee_id?: number | null; requester_nik?: string; requester_position?: string; can_decide?: boolean
 }
 export interface Person { user_id: number; name: string; role?: string }
 export interface AppUser { id: number; email: string; name: string; role: User['role']; employee_id: number | null; employee_name: string; employee_nik?: string; is_active: boolean; businesses: Business[] }
 export interface AuditRow { id: number; user_name: string; action: string; entity: string; entity_id: string; created_at: string }
-export interface Holiday { id: number; date: string; name: string; business_id: number | null; deducts_leave: boolean }
+export interface Holiday { id: number; date: string; name: string; business_id: number | null; location_id: number | null; location_name?: string; business_name?: string; kind: 'semua' | 'non_roster' | 'roster'; category: 'libur_nasional' | 'cuti_bersama' | 'libur_perusahaan'; deducts_leave: boolean }
 export interface FileItem { id: number; label: string; file_name: string; mime_type: string; size: number; drive_status?: string; drive_error?: string }
 export interface LeaveCalc { days: number; skipped: { date: string; name: string; deducts_leave: boolean }[]; error?: string }
 
@@ -64,10 +72,15 @@ export interface AttRow {
   in_loc_status?: string; out_loc_status?: string; loc_reason?: string
 }
 export interface AttSummary { kerja?: number; hadir?: number; izin?: number; sakit?: number; belum?: number; terlambat?: number; kerja_hari_libur?: number; nonkerja?: number; cuti?: number; off?: number; libur?: number }
-export interface RecapRow { employee_id: number; name: string; nik: string; unit_name: string; business_name: string; location_name: string; work_days: number; present: number; late: number; absent: number; cuti: number; izin: number; sakit: number; worked_off: number; off: number; holiday: number; work_minutes: number; rate: number }
+export interface RecapRow { employee_id: number; name: string; nik: string; unit_name: string; business_name: string; location_name: string; work_days: number; present: number; late: number; absent: number; cuti: number; izin: number; sakit: number; worked_off: number; off: number; holiday: number; work_minutes: number; rate: number
+  // roster members only (akumulasi dari DOH); absent for non-roster rows
+  doh?: string | null; accum_from?: string; cycle_no?: number; cycle_start?: string; cycle_end?: string; cycle_work?: number; cycle_off?: number; cycle_cuti?: number; cum_work?: number; cum_off?: number; cum_cuti?: number }
 export interface ShiftRow { adjusted?: boolean; employee_id: number; name: string; nik: string; business_name: string; location_name: string; policy: string; pattern: string; schedule_name: string; today: string; today_state: string; tomorrow: string; tomorrow_state: string }
-export interface ManualRow { id: number; employee_id: number; employee_name: string; unit_name: string; date: string; check_in: string; check_out: string; reason: string; status: 'Pending Approval' | 'Disetujui' | 'Ditolak' | 'Dibatalkan'; waiting_for: string; can_cancel: boolean; approval_id: number | null }
-export interface RosterAdjustment { id: number; employee_id: number; employee_name: string; unit_name: string; start_date: string; end_date: string; kind: 'kerja' | 'off'; reason: string; status: 'Pending Approval' | 'Disetujui' | 'Ditolak' | 'Dibatalkan'; waiting_for: string; can_cancel: boolean; approval_id: number | null }
+export interface ManualRow { id: number; employee_id: number; employee_name: string; unit_name: string; date: string; check_in: string; check_out: string; reason: string; status: 'Pending Approval' | 'Disetujui' | 'Ditolak' | 'Dibatalkan'; waiting_for: string; can_cancel: boolean; approval_id: number | null; chain: ChainStep[] }
+export interface RosterAdjustmentDay { id?: number; date: string; kind: 'kerja' | 'off'; is_compensation: boolean }
+export interface RosterAdjustmentPreview { n: number; kind: 'kerja' | 'off' | ''; suggested: string[]; days: { date: string; kind: 'kerja' | 'off'; pattern: 'kerja' | 'off'; changed: boolean }[] }
+export interface RosterAdjustment { id: number; days: RosterAdjustmentDay[]; compensate: boolean; employee_id: number; employee_name: string; unit_name: string; start_date: string; end_date: string; kind: 'kerja' | 'off' | 'campuran'; reason: string; note: string; status: 'Pending Approval' | 'Disetujui' | 'Ditolak' | 'Dibatalkan'; waiting_for: string; can_cancel: boolean; can_approve: boolean; approval_id: number | null
+  employee_nik: string; position_name: string; attachment_count: number; chain: ChainStep[]; created_at: string }
 export interface AppNotification { id: number; kind: string; title: string; body: string; link: string; read_at: string | null; created_at: string }
 export interface RosterWindow { is_roster: boolean; has_request?: boolean; window?: { in_off: boolean; off_start: string; off_end: string; leave_from: string; days_until_off: number } }
 export interface DevAccount { id: number; name: string; email: string; role: User['role']; nik: string; position: string; businesses: string[] | null; has_employee: boolean }
@@ -138,7 +151,7 @@ export interface RecurringTask {
 export interface PermDef { key: string; label: string; group: string; hint?: string; locked?: boolean }
 export interface ReportData { type: string; title: string; subtitle: string; columns: string[]; rows: (string | number)[][]; summary: string[][]; can_export: boolean }
 export interface DashboardData {
-  scope: string; view: 'team' | 'me'; can_team: boolean
+  scope: string; view: 'team' | 'me'; can_team: boolean; can_personal: boolean
   people: { active: number; tetap: number; kontrak: number; freelance: number; expiring: number; vacant: number }
   attendance: { scheduled: number; present: number; late: number; leave: number; absent: number; trend: { date: string; label: string; present: number; late: number; leave: number; absent: number }[] }
   tasks: { status: Record<string, number>; overdue: number; due_week: number; weekly: { label: string; created: number; completed: number }[] }
@@ -160,7 +173,7 @@ export interface DashboardData {
   activity: ActivityItem[]; activity_total: number
 }
 export interface DashProject { id: number; name: string; desc: string; business: string; owner: string; start: string; end: string; days_left: number | null; tasks: number; open: number; overdue: number; progress: number; status: string; status_tone: 'red' | 'blue' | 'green' }
-export interface ActivityItem { id: number; at: string; time: string; actor: string; title: string; desc: string; tone: 'ok' | 'warn' | 'danger' | 'info' | 'muted'; link: string }
+export interface ActivityItem { id: number; at: string; time: string; actor: string; title: string; desc: string; tone: 'ok' | 'warn' | 'danger' | 'info' | 'muted'; link: string; entity: string; ref_id: number }
 export interface PerfRow { name: string; unit: string; score: number; status: KpiStatus }
 
 export interface DriveStatusData {

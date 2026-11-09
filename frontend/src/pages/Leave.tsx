@@ -1,19 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { BellRing, Paperclip, Plus, X } from 'lucide-react'
+import { BellRing, FileDown, Paperclip, Plus, X } from 'lucide-react'
 import Layout from '../components/Layout/Layout'
 import Badge from '../components/ui/Badge'
 import DataTable from '../components/ui/DataTable'
 import DateField from '../components/ui/DateField'
 import FileThumbs from '../components/ui/FileThumbs'
 import Modal from '../components/ui/Modal'
+import ApprovalPreview from '../components/approval/ApprovalPreview'
+import ApprovalChain from '../components/approval/ApprovalChain'
+import ApprovalTimeline, { stepKind, stepLabel } from '../components/approval/ApprovalTimeline'
+import { exportApprovalSlip } from '../utils/pdf'
 import { useAuthStore } from '../store/auth'
 import { bizParams, useBusinessStore } from '../store/business'
 import {
   adjustLeaveBalance, approveRequest, cancelLeaveRequest, createLeaveRequest, deleteLeaveAttachment, fetchLeaveAttachmentBlob, getApproval, getApprovers,
   getLeaveAttachments, getLeaveBalances, getLeaveCalc, getLeaveRequests, getLeaveSummary, getLeaveTypes, getRosterWindow, grantLeave, rejectRequest, uploadLeaveAttachment,
 } from '../services/api'
-import type { ApprovalRequest, FileItem, LeaveBalanceRow, LeaveCalc, LeaveRow, LeaveSummary, LeaveType, Person, RosterWindow } from '../types'
+import type { ApprovalRequest, FileItem, LeaveBalanceRow, LeaveCalc, LeaveRow, LeaveSummary, LeaveType, PreviewStep, RosterWindow } from '../types'
 
 const fmt = (d: string) => new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: '2-digit' })
 const dt = (d?: string | null) => (d ? new Date(d).toLocaleString('id-ID', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-')
@@ -64,6 +68,13 @@ export default function Leave() {
   useEffect(() => {
     if (params.get('new')) { setFormStart(params.get('from') ?? ''); setForm(true); setParams({}, { replace: true }) }
   }, [params])
+  // deep link from an activity row: /leave?open=<id> opens that request's detail once the list is loaded
+  useEffect(() => {
+    const o = Number(params.get('open'))
+    if (!o) return
+    const r = rows.find((x) => x.id === o)
+    if (r) { setDetail(r); setParams({}, { replace: true }) }
+  }, [params, rows])
   const rw = roster?.is_roster ? roster.window : undefined
   const showBanner = !!rw && !roster?.has_request && (rw.in_off || rw.days_until_off <= 14)
 
@@ -74,7 +85,7 @@ export default function Leave() {
   const submitDecision = async () => {
     if (!decision) return
     if (!decision.approve && !decision.note.trim()) return setDecisionError('Alasan penolakan wajib diisi')
-    try { await (decision.approve ? approveRequest : rejectRequest)(decision.row.approval_id!, decision.note); setDecision(null); setDecisionError(''); load() } catch (e: any) { setDecisionError(err(e, 'Gagal memproses')); load() }
+    try { await (decision.approve ? approveRequest : rejectRequest)(decision.row.approval_id!, decision.note); setDecision(null); setDetail(null); setDecisionError(''); load() } catch (e: any) { setDecisionError(err(e, 'Gagal memproses')); load() }
   }
   const submitGrant = async () => {
     if (!grant) return
@@ -89,7 +100,7 @@ export default function Leave() {
   )
 
   return (
-    <Layout title="Cuti & Izin" subtitle="Pengajuan cuti tahunan, izin, dan sakit — saldo cuti, lampiran dokumen, dan persetujuan atasan (n+1)">
+    <Layout title="Cuti & Izin" subtitle="Pengajuan cuti tahunan, izin, dan sakit — saldo cuti, lampiran dokumen, dan persetujuan berjenjang sesuai alur HR">
       {showBanner && rw && (
         <div className="mb-3 rounded-xl border border-warn/40 bg-warn-soft p-3 text-xs flex items-start gap-3">
           <BellRing className="w-5 h-5 text-warn shrink-0 mt-0.5" />
@@ -134,6 +145,7 @@ export default function Leave() {
               { head: 'Kembali Kerja', render: (r) => fmt(r.back_date) },
               { head: 'Alasan', render: (r) => <span className="line-clamp-2">{r.reason || '-'}</span> },
               { head: 'Status', render: (r) => <div><Badge tone={statusTone[r.status]}>{r.status === 'Pending Approval' ? 'Menunggu Persetujuan' : r.status}</Badge>{r.waiting_for && <div className="text-[10.5px] text-muted mt-0.5">oleh {r.waiting_for}</div>}</div> },
+              { head: 'Alur Persetujuan', render: (r) => <ApprovalChain chain={r.chain} /> },
               { head: 'Waktu', render: (r) => r.status === 'Disetujui' ? <Badge tone={timeTone[r.time_state] ?? 'gray'}>{r.time_state}</Badge> : '-' },
               { head: 'Aksi', render: (r) => (
                 <div className="flex gap-1.5 whitespace-nowrap">
@@ -169,7 +181,7 @@ export default function Leave() {
 
       {form && <LeaveForm types={types} year={year} businessId={businessId} initialStart={formStart} onClose={() => { setForm(false); setFormStart('') }} onSaved={() => { setForm(false); setFormStart(''); load(); loadRoster() }} />}
 
-      {detail && <LeaveDetail row={detail} types={types} onClose={() => setDetail(null)} onCancel={() => cancel(detail)} onChanged={load} />}
+      {detail && <LeaveDetail row={detail} types={types} onClose={() => setDetail(null)} onCancel={() => cancel(detail)} onDecide={(approve) => { setDecisionError(''); setDecision({ row: detail, approve, note: '' }) }} onChanged={load} />}
 
       <Modal open={!!decision} onClose={() => setDecision(null)} title={decision?.approve ? 'Setujui Pengajuan' : 'Tolak Pengajuan'}>
         {decision && (
@@ -245,14 +257,27 @@ function LeaveFiles({ id, canEdit, onChanged }: { id: number; canEdit?: boolean;
   )
 }
 
-function LeaveDetail({ row, types, onClose, onCancel, onChanged }: { row: LeaveRow; types: LeaveType[]; onClose: () => void; onCancel: () => void; onChanged: () => void }) {
+function LeaveDetail({ row, types, onClose, onCancel, onDecide, onChanged }: { row: LeaveRow; types: LeaveType[]; onClose: () => void; onCancel: () => void; onDecide: (approve: boolean) => void; onChanged: () => void }) {
   const user = useAuthStore((s) => s.user)
   const isAdmin = user?.role === 'super_admin' || user?.role === 'hr_admin'
   const [ap, setAp] = useState<ApprovalRequest | null>(null)
-  useEffect(() => { if (row.approval_id) getApproval(row.approval_id).then((r) => setAp(r.data)).catch(() => {}) }, [row.approval_id])
+  const [apError, setApError] = useState('')
+  useEffect(() => {
+    if (!row.approval_id) { setApError('Alur persetujuan tidak tersedia untuk pengajuan ini.'); return }
+    setAp(null); setApError('')
+    getApproval(row.approval_id).then((r) => setAp(r.data)).catch((e) => setApError(err(e, 'Alur persetujuan tidak dapat dimuat.')))
+  }, [row.approval_id])
   const own = row.employee_id === user?.employee_id
   const t = types.find((x) => x.id === row.type_id)
-  const kindLabel = { 'n+1': 'atasan n+1', assigned: 'ditugaskan', fallback: 'HR' } as const
+  const pdf = () => exportApprovalSlip({
+    title: 'Formulir Persetujuan Cuti & Izin',
+    requester: { name: row.employee_name, nik: row.employee_nik, position: row.position_name, unit: row.unit_name || row.business_name },
+    details: [['Jenis', row.type_name], ['Periode', period(row)], ['Durasi', `${row.days} hari kerja`], ['Kembali Kerja', fmt(row.back_date)], ['Alasan', row.reason || '-']],
+    status: row.status,
+    steps: ap ? ap.steps.map((s) => ({ level: s.level, approver: s.approver_name, kind: stepKind[s.kind], status: stepLabel(s.status), at: s.acted_at ?? undefined, note: s.note }))
+      : (row.chain ?? []).map((s) => ({ level: s.level, approver: s.name, kind: stepKind[s.kind], status: stepLabel(s.status) })),
+    filename: `persetujuan-cuti-${row.id}.pdf`,
+  })
   return (
     <Modal open onClose={onClose} title={`${row.type_name} — ${row.employee_name}`}>
       <div className="space-y-4 text-xs">
@@ -267,13 +292,14 @@ function LeaveDetail({ row, types, onClose, onCancel, onChanged }: { row: LeaveR
         </div>
         <div>
           <div className="font-bold mb-1.5">Alur Persetujuan</div>
-          {ap ? <ol className="space-y-1.5">{ap.steps.map((s) => (
-            <li key={s.id} className="flex items-start gap-2">
-              <Badge tone={s.status === 'Approved' ? 'green' : s.status === 'Rejected' ? 'red' : s.status === 'Pending' ? 'amber' : 'gray'}>{s.status === 'Approved' ? 'Disetujui' : s.status === 'Rejected' ? 'Ditolak' : s.status === 'Pending' ? 'Menunggu' : s.status}</Badge>
-              <span><b>{s.approver_name}</b> <span className="text-muted">({kindLabel[s.kind]})</span>{s.acted_at && <span className="text-muted"> · {dt(s.acted_at)}</span>}{s.note && <div className="text-muted">“{s.note}”</div>}</span>
-            </li>))}</ol> : <p className="text-muted">Memuat…</p>}
+          {ap ? <ApprovalTimeline steps={ap.steps} /> : apError ? <p className="text-danger bg-danger-soft rounded-lg px-3 py-2">{apError}</p> : <p className="text-muted">Memuat…</p>}
         </div>
-        <div className="flex justify-end gap-2"><button className="btn" onClick={onClose}>Tutup</button>{row.can_cancel && <button className="btn text-danger" onClick={onCancel}>Batalkan</button>}</div>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button className="btn" onClick={onClose}>Tutup</button>
+          {row.status === 'Disetujui' && <button className="btn" onClick={pdf}><FileDown className="w-3.5 h-3.5 inline mr-1" />Unduh PDF</button>}
+          {row.can_decide && <><button className="btn-primary" onClick={() => onDecide(true)}>Setujui</button><button className="btn text-danger" onClick={() => onDecide(false)}>Tolak</button></>}
+          {row.can_cancel && <button className="btn text-danger" onClick={onCancel}>Batalkan</button>}
+        </div>
       </div>
     </Modal>
   )
@@ -298,9 +324,7 @@ function LeaveForm({ types, year, businessId, initialStart, onClose, onSaved }: 
   const [reason, setReason] = useState('')
   const [rosterInfo, setRosterInfo] = useState<RosterWindow | null>(null)
   const [files, setFiles] = useState<File[]>([])
-  const [nplus, setNplus] = useState<Person[]>([])
-  const [cands, setCands] = useState<Person[]>([])
-  const [assigned, setAssigned] = useState(0)
+  const [chain, setChain] = useState<PreviewStep[]>([])
   const [calc, setCalc] = useState<LeaveCalc | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -314,9 +338,8 @@ function LeaveForm({ types, year, businessId, initialStart, onClose, onSaved }: 
   }, [])
   useEffect(() => {
     if (!employeeId) return
-    setAssigned(0)
-    getApprovers(employeeId).then((r) => { setNplus(r.data.nplus1); setCands(r.data.candidates) })
-  }, [employeeId])
+    getApprovers(employeeId, { request: 'leave', leave_type_id: typeId || undefined }).then((r) => setChain(r.data.chain)).catch(() => setChain([]))
+  }, [employeeId, typeId])
   useEffect(() => { // roster members get the rule hint; everyone else gets nothing
     if (employeeId) getRosterWindow(employeeId).then((r) => setRosterInfo(r.data)).catch(() => setRosterInfo(null))
   }, [employeeId])
@@ -327,7 +350,6 @@ function LeaveForm({ types, year, businessId, initialStart, onClose, onSaved }: 
 
   const empBusinessId = opts.find((o) => o.employee_id === employeeId)?.business_id ?? 0 // holidays shown = national + this employee's business
   const type = types.find((t) => t.id === typeId)
-  const assignedPerson = cands.find((c) => c.user_id === assigned)
   const days = calc?.days ?? 0
   const forOthers = opts.length > 1
   const needFile = !!type?.requires_attachment
@@ -351,7 +373,7 @@ function LeaveForm({ types, year, businessId, initialStart, onClose, onSaved }: 
     if (needFile && !files.length) return setError(`Jenis "${type?.name}" wajib melampirkan dokumen pendukung (mis. surat dokter)`)
     setBusy(true)
     try {
-      await createLeaveRequest({ employee_id: employeeId, type_id: typeId, start_date: start, end_date: end, reason, assigned_user_id: assigned || null }, files)
+      await createLeaveRequest({ employee_id: employeeId, type_id: typeId, start_date: start, end_date: end, reason }, files)
       onSaved()
     } catch (e: any) { setError(err(e, 'Gagal mengajukan')) } finally { setBusy(false) }
   }
@@ -401,19 +423,7 @@ function LeaveForm({ types, year, businessId, initialStart, onClose, onSaved }: 
             <span className="text-muted ml-2">JPG/PNG/WEBP/PDF, maks 10 MB per file</span>
           </div>
 
-          <div className="border border-line rounded-lg p-3 bg-sunken/60 space-y-2">
-            <div className="font-bold">Persetujuan</div>
-            {assigned ? (
-              <div className="text-ok bg-ok-soft rounded px-2 py-1.5">Hanya <b>{assignedPerson?.name}</b> yang menyetujui. Persetujuan atasan (n+1) tidak diperlukan.</div>
-            ) : (
-              <div>Atasan langsung (n+1): <b>{nplus.length ? nplus.map((p) => p.name).join(' → ') : '—'}</b></div>
-            )}
-            <label className="block font-semibold">Tugaskan ke approver lain <span className="font-normal text-muted">(opsional)</span>
-              <select className="input w-full mt-1" value={assigned} onChange={(e) => setAssigned(Number(e.target.value))}>
-                <option value={0}>— Tidak, gunakan atasan (n+1) —</option>{cands.map((c) => <option key={c.user_id} value={c.user_id}>{c.name} ({c.role})</option>)}
-              </select>
-            </label>
-          </div>
+          <ApprovalPreview chain={chain} />
 
           {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}
           <div className="flex justify-end gap-2"><button className="btn" onClick={onClose}>Batal</button><button className="btn-primary" disabled={busy || !!calc?.error} onClick={submit}>{busy ? 'Mengirim…' : 'Ajukan'}</button></div>

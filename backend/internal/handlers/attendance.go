@@ -509,26 +509,27 @@ func AttendanceDaily(c *gin.Context) {
 }
 
 type recapRow struct {
-	EmployeeID uint   `json:"employee_id"`
-	Name       string `json:"name"`
-	NIK        string `json:"nik"`
-	UnitName   string `json:"unit_name"`
-	Business   string `json:"business_name"`
-	Location   string `json:"location_name"`
-	WorkDays   int    `json:"work_days"`
-	Present    int    `json:"present"`
-	Late       int    `json:"late"`
-	Absent     int    `json:"absent"` // belum / tidak absen on working days up to today
-	Cuti       int    `json:"cuti"`
-	Izin       int    `json:"izin"`
-	Sakit      int    `json:"sakit"`
-	WorkedOff  int    `json:"worked_off"`
-	Off        int    `json:"off"`
-	Holiday    int    `json:"holiday"`
-	Minutes    int    `json:"work_minutes"`
-	Rate       int    `json:"rate"`            // attendance % of working days elapsed
-	Elapsed    int    `json:"elapsed"`         // scheduled working days already due (today counts once the person tapped in)
-	Excused    int    `json:"excused_elapsed"` // of those, days covered by approved leave
+	EmployeeID        uint   `json:"employee_id"`
+	Name              string `json:"name"`
+	NIK               string `json:"nik"`
+	UnitName          string `json:"unit_name"`
+	Business          string `json:"business_name"`
+	Location          string `json:"location_name"`
+	WorkDays          int    `json:"work_days"`
+	Present           int    `json:"present"`
+	Late              int    `json:"late"`
+	Absent            int    `json:"absent"` // belum / tidak absen on working days up to today
+	Cuti              int    `json:"cuti"`
+	Izin              int    `json:"izin"`
+	Sakit             int    `json:"sakit"`
+	WorkedOff         int    `json:"worked_off"`
+	Off               int    `json:"off"`
+	Holiday           int    `json:"holiday"`
+	Minutes           int    `json:"work_minutes"`
+	Rate              int    `json:"rate"`            // attendance % of working days elapsed
+	Elapsed           int    `json:"elapsed"`         // scheduled working days already due (today counts once the person tapped in)
+	Excused           int    `json:"excused_elapsed"` // of those, days covered by approved leave
+	*rosterCycleStats        // roster members only (AttendanceRecap); nil → fields omitted
 }
 
 // buildRecap computes per-employee attendance totals over [first,last].
@@ -620,7 +621,10 @@ func AttendanceRecap(c *gin.Context) {
 	if t, err := time.ParseInLocation("2006-01", c.Query("month"), jkt); err == nil {
 		first = t
 	}
-	c.JSON(http.StatusOK, gin.H{"month": first.Format("2006-01"), "rows": buildRecap(attendanceEmployees(c), first, first.AddDate(0, 1, -1))})
+	emps, last := attendanceEmployees(c), first.AddDate(0, 1, -1)
+	rows := buildRecap(emps, first, last)
+	rosterCycleBatch(rows, emps, newResolver(first, last), first, last)
+	c.JSON(http.StatusOK, gin.H{"month": first.Format("2006-01"), "rows": rows})
 }
 
 type shiftRow struct {
@@ -714,10 +718,11 @@ func manualAttendanceHook(tx *gorm.DB, req *models.ApprovalRequest, outcome stri
 
 type manualView struct {
 	models.ManualAttendance
-	EmployeeName string `json:"employee_name"`
-	UnitName     string `json:"unit_name"`
-	WaitingFor   string `json:"waiting_for"`
-	CanCancel    bool   `json:"can_cancel"`
+	EmployeeName string      `json:"employee_name"`
+	UnitName     string      `json:"unit_name"`
+	WaitingFor   string      `json:"waiting_for"`
+	CanCancel    bool        `json:"can_cancel"`
+	Chain        []chainStep `json:"chain"`
 }
 
 func ListManualAttendance(c *gin.Context) {
@@ -749,6 +754,13 @@ func ListManualAttendance(c *gin.Context) {
 		waiting[w.RequestID] = w.Name
 	}
 	me := myEmployeeID(c)
+	var apIDs []uint
+	for _, m := range l {
+		if m.ApprovalID != nil {
+			apIDs = append(apIDs, *m.ApprovalID)
+		}
+	}
+	chains := loadChains(apIDs)
 	out := make([]manualView, 0, len(l))
 	for _, m := range l {
 		v := manualView{ManualAttendance: m, EmployeeName: names[m.EmployeeID].Name}
@@ -757,6 +769,7 @@ func ListManualAttendance(c *gin.Context) {
 		}
 		if m.ApprovalID != nil {
 			v.WaitingFor = waiting[*m.ApprovalID]
+			v.Chain = chains[*m.ApprovalID]
 		}
 		v.CanCancel = m.Status == "Pending Approval" && (isGroupLevel(c) || (me != nil && *me == m.EmployeeID))
 		out = append(out, v)
@@ -766,12 +779,11 @@ func ListManualAttendance(c *gin.Context) {
 
 func CreateManualAttendance(c *gin.Context) {
 	var in struct {
-		EmployeeID     uint   `json:"employee_id"`
-		Date           string `json:"date"`
-		CheckIn        string `json:"check_in"`
-		CheckOut       string `json:"check_out"`
-		Reason         string `json:"reason"`
-		AssignedUserID *uint  `json:"assigned_user_id"`
+		EmployeeID uint   `json:"employee_id"`
+		Date       string `json:"date"`
+		CheckIn    string `json:"check_in"`
+		CheckOut   string `json:"check_out"`
+		Reason     string `json:"reason"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "data tidak valid"})
@@ -826,8 +838,8 @@ func CreateManualAttendance(c *gin.Context) {
 		if err := tx.Create(&m).Error; err != nil {
 			return err
 		}
-		req, err := approval.Submit(tx, approval.SubmitInput{Type: "attendance_manual", RefID: m.ID, BusinessID: emp.BusinessID, RequesterEmployeeID: &empID, RequesterUserID: requester,
-			Title: "Absensi Manual — " + emp.Name, Summary: fmt.Sprintf("%s · %s–%s · %s", date.Format("02/01/06"), in.CheckIn, in.CheckOut, m.Reason), AssignedUserID: in.AssignedUserID})
+		req, err := approval.Submit(tx, approval.SubmitInput{Type: "attendance_manual", RefID: m.ID, BusinessID: emp.BusinessID, RequesterEmployeeID: &empID, RequesterUserID: requester, FlowKey: "attendance_manual",
+			Title: "Absensi Manual — " + emp.Name, Summary: fmt.Sprintf("%s · %s–%s · %s", date.Format("02/01/06"), in.CheckIn, in.CheckOut, m.Reason)})
 		if err != nil {
 			return err
 		}

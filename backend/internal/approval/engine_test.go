@@ -1,6 +1,10 @@
 package approval
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/dea-core/hcis/backend/internal/models"
+)
 
 func u(n uint) *uint { return &n }
 
@@ -24,6 +28,34 @@ func TestMayDecide(t *testing.T) {
 	}
 	for _, c := range cases {
 		if got := MayDecide(c.stepApprover, c.actor, c.role, c.requesterUser, c.requesterEmp, c.actorEmp); got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestCanDecideNow(t *testing.T) {
+	mk := func(status string, level int, stepStatus string) *models.ApprovalRequest {
+		return &models.ApprovalRequest{Status: status, CurrentLevel: level, RequesterUserID: 5, RequesterEmployeeID: u(1),
+			Steps: []models.ApprovalStep{{Level: 1, ApproverUserID: 10, Status: Approved}, {Level: 2, ApproverUserID: 20, Status: stepStatus}}}
+	}
+	cases := []struct {
+		name  string
+		req   *models.ApprovalRequest
+		actor uint
+		role  string
+		emp   *uint
+		want  bool
+	}{
+		{"current approver", mk(Pending, 2, Pending), 20, "manager", u(2), true},
+		{"earlier approver no longer decides", mk(Pending, 2, Pending), 10, "manager", u(3), false},
+		{"super admin may decide", mk(Pending, 2, Pending), 99, "super_admin", u(9), true},
+		{"requester never", mk(Pending, 2, Pending), 5, "super_admin", u(1), false},
+		{"requester by employee record never", mk(Pending, 2, Pending), 99, "super_admin", u(1), false},
+		{"already decided", mk(Approved, 2, Approved), 20, "manager", u(2), false},
+		{"waiting step is not decidable", mk(Pending, 2, "Waiting"), 20, "manager", u(2), false},
+	}
+	for _, c := range cases {
+		if got := CanDecideNow(c.req, c.actor, c.role, c.emp); got != c.want {
 			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
 		}
 	}

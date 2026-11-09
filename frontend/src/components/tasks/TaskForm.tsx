@@ -4,7 +4,7 @@ import DateField from '../ui/DateField'
 import Modal from '../ui/Modal'
 import MultiPick from '../ui/MultiPick'
 import { useAuthStore } from '../../store/auth'
-import { createTask, getApprovers, getEmployees, getKpiTaskOptions, getProjects, getTaskAssignees, getTaskGivers, getTasks, updateTask } from '../../services/api'
+import { createTask, getApprovers, getEmployeeOptions, getKpiTaskOptions, getProjects, getTaskAssignees, getTaskGivers, getTasks, updateTask } from '../../services/api'
 import type { Assignee, Employee, Person, Project, TaskRow } from '../../types'
 import { err } from './taskUtils'
 
@@ -55,7 +55,7 @@ export default function TaskForm({ task, defaults, onClose, onSaved }: Props) {
 
   useEffect(() => { // everyone in that business can be giver / member / watcher
     if (!biz) return
-    getEmployees({ business_id: biz, status: 'Aktif', page_size: 1000 }).then((r) => setPeople(r.data.data ?? []))
+    getEmployeeOptions({ business_id: biz }).then((r) => setPeople(r.data ?? []))
     getProjects({ business_id: biz }).then((r) => setProjects(r.data.data.filter((p) => p.status === 'Aktif' || p.id === f.project_id)))
   }, [biz])
   useEffect(() => { // candidate parents (not itself or its own sub-tasks)

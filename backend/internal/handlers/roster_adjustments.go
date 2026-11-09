@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,6 +40,17 @@ type adjustmentView struct {
 	UnitName     string `json:"unit_name"`
 	WaitingFor   string `json:"waiting_for"`
 	CanCancel    bool   `json:"can_cancel"`
+	// CanApprove: I am the approver of the current step (approval.MayDecide); the approval itself is ApprovalID.
+	CanApprove      bool        `json:"can_approve"`
+	EmployeeNIK     string      `json:"employee_nik"`
+	PositionName    string      `json:"position_name"`
+	AttachmentCount int         `json:"attachment_count"`
+	Chain           []chainStep `json:"chain"`
+}
+
+// canCancelAdjustment: only the requester (the employee it is filed for) and group-level roles (HR / super admin).
+func canCancelAdjustment(group bool, me *uint, a models.RosterAdjustment) bool {
+	return a.Status == "Pending Approval" && (group || (me != nil && *me == a.EmployeeID))
 }
 
 func ListRosterAdjustments(c *gin.Context) {
@@ -54,92 +67,240 @@ func ListRosterAdjustments(c *gin.Context) {
 	q.Order("roster_adjustments.created_at DESC").Limit(500).Find(&l)
 	emps := map[uint]models.Employee{}
 	var es []models.Employee
-	database.DB.Preload("Unit").Select("id, name, unit_id").Find(&es)
+	database.DB.Preload("Unit").Preload("Position").Select("id, name, nik, unit_id, position_id").Find(&es)
 	for _, e := range es {
 		emps[e.ID] = e
 	}
-	waiting := map[uint]string{}
-	var ws []struct {
-		RequestID uint
-		Name      string
+	var apIDs, ids []uint
+	for _, a := range l {
+		ids = append(ids, a.ID)
+		if a.ApprovalID != nil {
+			apIDs = append(apIDs, *a.ApprovalID)
+		}
 	}
-	database.DB.Raw(`SELECT s.request_id, u.name FROM approval_steps s JOIN users u ON u.id = s.approver_user_id WHERE s.status = 'Pending'
-		AND s.request_id IN (SELECT approval_id FROM roster_adjustments WHERE status = 'Pending Approval')`).Scan(&ws)
-	for _, w := range ws {
-		waiting[w.RequestID] = w.Name
+	pending := loadPending(apIDs)
+	chains := loadChains(apIDs)
+	attach := map[uint]int{}
+	if len(ids) > 0 {
+		var cs []struct {
+			RosterAdjustmentID uint
+			N                  int
+		}
+		database.DB.Raw("SELECT roster_adjustment_id, COUNT(*) AS n FROM roster_adjustment_attachments WHERE roster_adjustment_id IN ? GROUP BY roster_adjustment_id", ids).Scan(&cs)
+		for _, x := range cs {
+			attach[x.RosterAdjustmentID] = x.N
+		}
+	}
+	daysOf := map[uint][]models.RosterAdjustmentDay{}
+	if len(ids) > 0 {
+		var ds []models.RosterAdjustmentDay
+		database.DB.Where("roster_adjustment_id IN ?", ids).Order("date, id").Find(&ds)
+		for _, d := range ds {
+			daysOf[d.RosterAdjustmentID] = append(daysOf[d.RosterAdjustmentID], d)
+		}
 	}
 	me := myEmployeeID(c)
 	out := make([]adjustmentView, 0, len(l))
 	for _, a := range l {
-		v := adjustmentView{RosterAdjustment: a, EmployeeName: emps[a.EmployeeID].Name}
-		if u := emps[a.EmployeeID].Unit; u != nil {
-			v.UnitName = u.Name
+		e := emps[a.EmployeeID]
+		a.Days = daysOf[a.ID]
+		if a.Days == nil {
+			a.Days = []models.RosterAdjustmentDay{}
+		}
+		v := adjustmentView{RosterAdjustment: a, EmployeeName: e.Name, EmployeeNIK: e.NIK, AttachmentCount: attach[a.ID]}
+		if e.Unit != nil {
+			v.UnitName = e.Unit.Name
+		}
+		if e.Position != nil {
+			v.PositionName = e.Position.Title
 		}
 		if a.ApprovalID != nil {
-			v.WaitingFor = waiting[*a.ApprovalID]
+			v.Chain = chains[*a.ApprovalID]
+			if p, ok := pending[*a.ApprovalID]; ok && a.Status == "Pending Approval" {
+				v.WaitingFor = p.ApproverName
+				v.CanApprove = p.mayDecide(c, me)
+			}
 		}
-		v.CanCancel = a.Status == "Pending Approval" && (isGroupLevel(c) || (me != nil && *me == a.EmployeeID) || isDirectManagerOf(c, a.EmployeeID))
+		v.CanCancel = canCancelAdjustment(isGroupLevel(c), me, a)
 		out = append(out, v)
 	}
 	c.JSON(http.StatusOK, out)
 }
 
-// CreateRosterAdjustment: the employee, their direct superior, or schedule managers can ask to turn a date range
-// of a roster member into work or off days. It goes through approval (n+1, or an assigned approver).
-func CreateRosterAdjustment(c *gin.Context) {
-	var in struct {
-		EmployeeID     uint   `json:"employee_id"`
-		StartDate      string `json:"start_date"`
-		EndDate        string `json:"end_date"`
-		Kind           string `json:"kind"`
-		Reason         string `json:"reason"`
-		AssignedUserID *uint  `json:"assigned_user_id"`
-	}
-	if err := c.ShouldBindJSON(&in); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "data tidak valid"})
-		return
-	}
-	start, ok1 := parseDate(in.StartDate)
-	end, ok2 := parseDate(in.EndDate)
-	if !ok1 || !ok2 || (in.Kind != "kerja" && in.Kind != "off") || strings.TrimSpace(in.Reason) == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "tanggal mulai/selesai, jenis (kerja/libur), dan alasan wajib diisi"})
-		return
-	}
-	if end.Before(start) || end.Sub(start) > 60*24*time.Hour {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "rentang tanggal tidak valid (maksimal 60 hari)"})
-		return
-	}
-	if end.Before(today().AddDate(0, 0, -7)) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "penyesuaian tidak boleh untuk tanggal lebih dari 7 hari yang lalu"})
-		return
-	}
+// authorizeAdjustTarget: who may file/preview for an employee (self, direct superior or schedule managers), and that
+// the employee is active and follows a roster. It writes the error response itself.
+func authorizeAdjustTarget(c *gin.Context, empID uint) (models.Employee, rosterSlot, bool) {
+	var emp models.Employee
 	me := myEmployeeID(c)
-	empID := in.EmployeeID
 	if empID == 0 && me != nil {
 		empID = *me
 	}
 	if empID == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "pilih karyawan"})
-		return
+		return emp, rosterSlot{}, false
 	}
 	if !(me != nil && *me == empID) && !canManageSchedule(c) && !isDirectManagerOf(c, empID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Anda hanya dapat mengajukan untuk diri sendiri atau bawahan langsung Anda"})
-		return
+		return emp, rosterSlot{}, false
 	}
-	var emp models.Employee
 	if database.DB.Limit(1).Find(&emp, empID).Error != nil || emp.ID == 0 || emp.Status != "Aktif" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "karyawan tidak ditemukan atau tidak aktif"})
-		return
+		return emp, rosterSlot{}, false
 	}
-	if _, member := newResolver(start, end).rosterOf[empID]; !member {
+	slot, member := newResolver(today(), today()).rosterOf[empID]
+	if !member {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "karyawan ini tidak mengikuti roster, jadwalnya mengikuti kalender kerja"})
+		return emp, rosterSlot{}, false
+	}
+	return emp, slot, true
+}
+
+// pendingDates: dates of the employee's other pending adjustment requests (from `from` on).
+func pendingDates(empID uint, from string) map[string]bool {
+	var ds []string
+	database.DB.Raw(`SELECT d.date FROM roster_adjustment_days d JOIN roster_adjustments a ON a.id = d.roster_adjustment_id
+		WHERE a.employee_id = ? AND a.status = 'Pending Approval' AND d.date >= ?`, empID, from).Scan(&ds)
+	m := map[string]bool{}
+	for _, d := range ds {
+		m[d] = true
+	}
+	return m
+}
+
+type previewDay struct {
+	Date    string `json:"date"`
+	Kind    string `json:"kind"`
+	Pattern string `json:"pattern"`
+	Changed bool   `json:"changed"`
+}
+
+type compensationPreview struct {
+	N         int          `json:"n"`
+	Kind      string       `json:"kind"`      // kind of the compensating days
+	Suggested []string     `json:"suggested"` // suggested compensating dates (after the requested range)
+	Days      []previewDay `json:"days"`
+}
+
+func buildPreview(days []adjDay, pat patternFn, pending map[string]bool) compensationPreview {
+	base := []adjDay{}
+	taken := map[string]bool{}
+	for k := range pending {
+		taken[k] = true
+	}
+	p := compensationPreview{Days: []previewDay{}}
+	for _, d := range days {
+		taken[d.Date] = true
+		if d.IsCompensation {
+			continue
+		}
+		base = append(base, d)
+		pt := pat(d.Date)
+		p.Days = append(p.Days, previewDay{d.Date, d.Kind, pt, pt != d.Kind})
+	}
+	p.N, p.Kind = netChange(base, pat)
+	p.Suggested = suggestCompensation(base, p.N, p.Kind, pat, taken)
+	return p
+}
+
+// PreviewRosterAdjustment: POST /roster-adjustments/preview {employee_id, days:[{date,kind}]}: pattern status per day,
+// N (days to compensate) and suggested compensating dates. Nothing is stored.
+func PreviewRosterAdjustment(c *gin.Context) {
+	var in struct {
+		EmployeeID uint     `json:"employee_id"`
+		Days       []adjDay `json:"days"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil || len(in.Days) == 0 || len(in.Days) > maxAdjustDays {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "daftar tanggal tidak valid"})
 		return
 	}
-	var dup int64
-	database.DB.Model(&models.RosterAdjustment{}).Where("employee_id = ? AND status = 'Pending Approval' AND start_date <= ? AND end_date >= ?", empID, end, start).Count(&dup)
-	if dup > 0 {
-		c.JSON(http.StatusConflict, gin.H{"error": "sudah ada pengajuan penyesuaian yang menunggu pada rentang tanggal tersebut"})
+	for _, d := range in.Days {
+		if _, ok := parseDate(d.Date); !ok || (d.Kind != "kerja" && d.Kind != "off") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "tanggal atau jenis hari tidak valid"})
+			return
+		}
+	}
+	emp, slot, ok := authorizeAdjustTarget(c, in.EmployeeID)
+	if !ok {
 		return
+	}
+	c.JSON(http.StatusOK, buildPreview(in.Days, slot.patternStatus, pendingDates(emp.ID, today().Format("2006-01-02"))))
+}
+
+// CreateRosterAdjustment: the employee, their direct superior, or schedule managers can ask to turn a list of dates
+// of a roster member into work or off days (optionally with compensation days). It goes through approval.
+// multipart: employee_id, reason, note, days (JSON [{date,kind,is_compensation}]), compensate, files[];
+// the legacy start_date/end_date/kind range is still accepted when `days` is absent.
+func CreateRosterAdjustment(c *gin.Context) {
+	empID64, _ := strconv.ParseUint(c.PostForm("employee_id"), 10, 64)
+	in := struct {
+		EmployeeID                       uint
+		StartDate, EndDate, Kind, Reason string
+		Note                             string
+	}{uint(empID64), c.PostForm("start_date"), c.PostForm("end_date"), c.PostForm("kind"), c.PostForm("reason"), strings.TrimSpace(c.PostForm("note"))}
+	compensate := c.PostForm("compensate") == "true" || c.PostForm("compensate") == "1"
+	form, _ := c.MultipartForm()
+	var files []*multipartFile
+	if form != nil {
+		for _, fh := range form.File["files"] {
+			files = append(files, &multipartFile{fh})
+		}
+	}
+	if len(files) > 10 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "maksimal 10 lampiran"})
+		return
+	}
+	if strings.TrimSpace(in.Reason) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "alasan wajib diisi"})
+		return
+	}
+	var days []adjDay
+	strict := true
+	if raw := strings.TrimSpace(c.PostForm("days")); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &days); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "daftar tanggal tidak valid"})
+			return
+		}
+	} else { // legacy range payload
+		strict = false
+		start, ok1 := parseDate(in.StartDate)
+		end, ok2 := parseDate(in.EndDate)
+		if !ok1 || !ok2 || (in.Kind != "kerja" && in.Kind != "off") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "tanggal mulai/selesai, jenis (kerja/libur), dan alasan wajib diisi"})
+			return
+		}
+		if end.Before(start) || end.Sub(start) > 60*24*time.Hour {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "rentang tanggal tidak valid (maksimal 60 hari)"})
+			return
+		}
+		days = expandRange(start, end, in.Kind)
+	}
+	for i := range days {
+		days[i].Date = strings.TrimSpace(days[i].Date)
+	}
+	emp, slot, ok := authorizeAdjustTarget(c, in.EmployeeID)
+	if !ok {
+		return
+	}
+	empID := emp.ID
+	if err := validateAdjustmentDays(days, compensate, slot.patternStatus, time.Now(), strict); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	minD, maxD, kind := summarizeDays(days)
+	if dup := firstOverlap(days, pendingDates(empID, minD)); dup != "" {
+		c.JSON(http.StatusConflict, gin.H{"error": "sudah ada pengajuan penyesuaian yang menunggu pada tanggal " + dup})
+		return
+	}
+	start, _ := parseDate(minD)
+	end, _ := parseDate(maxD)
+	mimes := make([]string, len(files))
+	for i, f := range files { // validate every file before anything is created
+		m, st, msg := checkUpload(f.fh)
+		if st != 0 {
+			c.JSON(st, gin.H{"error": msg})
+			return
+		}
+		mimes[i] = m
 	}
 	var empUser models.User
 	database.DB.Where("employee_id = ?", empID).Limit(1).Find(&empUser)
@@ -148,14 +309,31 @@ func CreateRosterAdjustment(c *gin.Context) {
 		requester = uid(c)
 	}
 	var a models.RosterAdjustment
+	var saved []string
 	err := database.DB.Transaction(func(tx *gorm.DB) error {
-		a = models.RosterAdjustment{EmployeeID: empID, BusinessID: emp.BusinessID, StartDate: start, EndDate: end, Kind: in.Kind, Reason: strings.TrimSpace(in.Reason), Status: "Pending Approval"}
+		a = models.RosterAdjustment{EmployeeID: empID, BusinessID: emp.BusinessID, StartDate: start, EndDate: end, Kind: kind, Reason: strings.TrimSpace(in.Reason), Note: in.Note, Compensate: compensate, Status: "Pending Approval"}
 		if err := tx.Create(&a).Error; err != nil {
 			return err
 		}
-		label := map[string]string{"kerja": "KERJA", "off": "LIBUR"}[in.Kind]
-		req, err := approval.Submit(tx, approval.SubmitInput{Type: "roster", RefID: a.ID, BusinessID: emp.BusinessID, RequesterEmployeeID: &empID, RequesterUserID: requester,
-			Title: "Penyesuaian Roster — " + emp.Name, Summary: fmt.Sprintf("%s – %s → %s · %s", start.Format("02/01/06"), end.Format("02/01/06"), label, a.Reason), AssignedUserID: in.AssignedUserID})
+		rows := make([]models.RosterAdjustmentDay, 0, len(days))
+		for _, d := range days {
+			rows = append(rows, models.RosterAdjustmentDay{RosterAdjustmentID: a.ID, EmployeeID: empID, Date: d.Date, Kind: d.Kind, IsCompensation: d.IsCompensation})
+		}
+		if err := tx.Create(&rows).Error; err != nil {
+			return err
+		}
+		for i, f := range files {
+			rel, size, err := saveUpload(f.fh, fmt.Sprintf("roster/%d", a.ID))
+			if err != nil {
+				return fmt.Errorf("gagal menyimpan lampiran \"%s\"", f.fh.Filename)
+			}
+			saved = append(saved, rel)
+			if err := tx.Create(&models.RosterAdjustmentAttachment{RosterAdjustmentID: a.ID, FileName: f.fh.Filename, MimeType: mimes[i], Size: size, LocalPath: rel}).Error; err != nil {
+				return err
+			}
+		}
+		req, err := approval.Submit(tx, approval.SubmitInput{Type: "roster", RefID: a.ID, BusinessID: emp.BusinessID, RequesterEmployeeID: &empID, RequesterUserID: requester, FlowKey: "roster",
+			Title: "Penyesuaian Roster — " + emp.Name, Summary: fmt.Sprintf("%s · %s", daysSummaryText(days), a.Reason)})
 		if err != nil {
 			return err
 		}
@@ -163,6 +341,9 @@ func CreateRosterAdjustment(c *gin.Context) {
 		return tx.Model(&a).Update("approval_id", req.ID).Error
 	})
 	if err != nil {
+		for _, rel := range saved { // rolled back: no orphan files
+			Store.Remove(rel)
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -177,8 +358,8 @@ func CancelRosterAdjustment(c *gin.Context) {
 		return
 	}
 	me := myEmployeeID(c)
-	if !isGroupLevel(c) && !(me != nil && *me == a.EmployeeID) && !isDirectManagerOf(c, a.EmployeeID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "tidak berwenang membatalkan"})
+	if !isGroupLevel(c) && !(me != nil && *me == a.EmployeeID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "hanya pemohon atau HR yang dapat membatalkan"})
 		return
 	}
 	if a.Status != "Pending Approval" || a.ApprovalID == nil {

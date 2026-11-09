@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { ActivityItem, RosterScheduleData, DriveStatusData, DashboardData, PermDef, ReportData, KpiClose, KpiHistoryRow, RecurringTask, DeptKpi, EmpScore, KpiItem, KpiSettings, ScoreTaskRow, Assignee, CurvePoint, Project, TaskDetailData, TaskRow, TaskSummary, DevAccount, AppNotification, RosterWindow, RosterAdjustment, AttRow, AttSummary, ManualRow, RecapRow, Roster, ShiftRow, WorkCalendar, Holiday, LeaveCalc, AppUser, ApprovalRequest, AuditRow, Business, Employee, EmployeeContract, EmployeeCompetency, EmployeeDocument, LeaveBalanceRow, LeaveRow, LeaveSummary, LeaveType, Person, Location, OrgUnit, Position, User } from '../types'
+import type { ApprovalFlow, FlowType, PreviewStep, ActivityItem, RosterScheduleData, DriveStatusData, DashboardData, PermDef, ReportData, KpiClose, KpiHistoryRow, RecurringTask, DeptKpi, EmpScore, KpiItem, KpiSettings, ScoreTaskRow, Assignee, CurvePoint, Project, TaskDetailData, TaskRow, TaskSummary, DevAccount, AppNotification, RosterWindow, RosterAdjustment, RosterAdjustmentPreview, AttRow, AttSummary, ManualRow, RecapRow, Roster, ShiftRow, WorkCalendar, Holiday, LeaveCalc, AppUser, ApprovalRequest, AuditRow, Business, Employee, EmployeeContract, EmployeeCompetency, EmployeeDocument, LeaveBalanceRow, LeaveRow, LeaveSummary, LeaveType, Person, Location, OrgUnit, Position, User } from '../types'
 
 // VITE_API_URL points at a backend on another domain; default is the Vite-proxied /api.
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api' })
@@ -49,6 +49,8 @@ export const deleteLocation = (id: number) => api.delete(`/org/locations/${id}`)
 // Employees
 export const getEmployees = (params?: object) =>
   api.get<{ data: Employee[]; total: number; page: number; page_size: number; stats: { active: number; tetap: number; kontrak: number; freelance: number; multi: number; expiring: number } }>('/employees', { params })
+// light picker list; scope=team keeps only self + downline, default = everyone active in my businesses
+export const getEmployeeOptions = (params?: object) => api.get<Employee[]>('/employees/options', { params })
 export const getEmployee = (id: number) => api.get<Employee>(`/employees/${id}`)
 export const saveEmployee = (d: Partial<Employee>) => (d.id ? api.put(`/employees/${d.id}`, d) : api.post('/employees', d))
 export const deleteEmployee = (id: number) => api.delete(`/employees/${id}`)
@@ -116,7 +118,12 @@ export const adjustLeaveBalance = (employeeId: number, d: { year: number; initia
 export const getLeaveSummary = (params?: object) => api.get<LeaveSummary>('/leave/summary', { params })
 
 // Approval
-export const getApprovers = (employeeId?: number) => api.get<{ nplus1: Person[]; candidates: Person[]; max_levels?: number }>('/approvers', { params: { employee_id: employeeId } })
+export interface ApproverQuery { request?: 'leave' | 'roster' | 'attendance_manual' | 'attendance_location'; leave_type_id?: number }
+// the resolved chain is the exact one a submit would build (same resolver on the server); `request`/`leave_type_id` pick the flow
+export const getApprovers = (employeeId?: number, q?: ApproverQuery) => api.get<{ nplus1: Person[]; chain: PreviewStep[]; flow_id: number | null; flow_key: string; candidates: Person[]; max_levels?: number }>('/approvers', { params: { employee_id: employeeId, ...q } })
+export const getApprovalFlows = () => api.get<{ data: ApprovalFlow[]; types: FlowType[] }>('/approval-flows')
+export const saveApprovalFlow = (d: ApprovalFlow) => api.put<{ id: number }>('/approval-flows', d)
+export const deleteApprovalFlow = (id: number) => api.delete(`/approval-flows/${id}`)
 export const getApprovalInbox = (params?: object) => api.get<ApprovalRequest[]>('/approvals/inbox', { params })
 export const getApprovalCount = () => api.get<{ inbox: number }>('/approvals/count')
 export const getApprovalHistory = (params?: object) => api.get<ApprovalRequest[]>('/approvals/history', { params })
@@ -142,7 +149,15 @@ export const deleteRoster = (id: number) => api.delete(`/rosters/${id}`)
 // members carry THEIR OWN cycle start (the first work day of that employee's cycle)
 export const setRosterEmployees = (id: number, members: { employee_id: number; start_cycle: string }[]) => api.put(`/rosters/${id}/employees`, { members })
 export const getRosterAdjustments = () => api.get<RosterAdjustment[]>('/roster-adjustments')
-export const createRosterAdjustment = (d: object) => api.post('/roster-adjustments', d)
+export const createRosterAdjustment = (d: Record<string, string | number | null | undefined>, files: File[]) => {
+  const f = new FormData()
+  Object.entries(d).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== '') f.append(k, String(v)) })
+  files.forEach((x) => f.append('files', x))
+  return api.post('/roster-adjustments', f)
+}
+export const previewRosterAdjustment = (employee_id: number, days: { date: string; kind: 'kerja' | 'off' }[]) => api.post<RosterAdjustmentPreview>('/roster-adjustments/preview', { employee_id, days })
+export const getRosterAttachments = (id: number) => api.get<{ id: number; file_name: string; mime_type: string; size: number }[]>(`/roster-adjustments/${id}/attachments`)
+export const fetchRosterAttachmentBlob = (id: number, aid: number) => api.get<Blob>(`/roster-adjustments/${id}/attachments/${aid}/file`, { responseType: 'blob' })
 export const cancelRosterAdjustment = (id: number) => api.post(`/roster-adjustments/${id}/cancel`)
 
 // Attendance (in-app views). The public tap page uses publicClock / publicTap below (no session).

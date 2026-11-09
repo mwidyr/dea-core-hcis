@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Search } from 'lucide-react'
 import Pagination, { rowsPerPage } from './Pagination'
 
 export interface Column<T> {
-  head: string; render: (row: T) => ReactNode; className?: string
+  head: string; hint?: string; render: (row: T) => ReactNode; className?: string
   /** makes the header clickable (asc → desc → default order); empty values (null/undefined/'') always sort last */
   sortValue?: (row: T) => string | number | null | undefined
 }
@@ -26,10 +26,12 @@ interface Props<T> {
   empty?: string
   /** order used while no header is selected (default: the order of `data`); give it the name column to get A–Z */
   defaultSort?: (a: T, b: T) => number
+  /** makes whole rows clickable (clicks on buttons / links / inputs inside a row are ignored) */
+  onRowClick?: (row: T) => void
 }
 
 // Client-side table: search + sortable headers + page size (10 / 20 / custom / semua) + first/prev/next/last.
-export default function DataTable<T>({ columns, data, searchText, searchPlaceholder = 'Cari…', filters, actions, rowKey, empty = 'Belum ada data', defaultSort }: Props<T>) {
+export default function DataTable<T>({ columns, data, searchText, searchPlaceholder = 'Cari…', filters, actions, rowKey, empty = 'Belum ada data', defaultSort, onRowClick }: Props<T>) {
   const [q, setQ] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
@@ -72,7 +74,7 @@ export default function DataTable<T>({ columns, data, searchText, searchPlacehol
       <div className="border border-line rounded-lg overflow-auto">
         <table className="w-full">
           <thead><tr>{columns.map((c) => {
-            if (!c.sortValue) return <th key={c.head} className="th">{c.head}</th>
+            if (!c.sortValue) return <th key={c.head} className="th" title={c.hint}>{c.head}</th>
             const on = sort?.col === c.head
             return (
               <th key={c.head} className="th" aria-sort={on ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
@@ -83,7 +85,7 @@ export default function DataTable<T>({ columns, data, searchText, searchPlacehol
             )
           })}</tr></thead>
           <tbody>
-            {rows.map((r) => <tr key={rowKey(r)}>{columns.map((c) => <td key={c.head} className={`td ${c.className ?? ''}`}>{c.render(r)}</td>)}</tr>)}
+            {rows.map((r) => <tr key={rowKey(r)} className={onRowClick ? 'cursor-pointer hover:bg-sunken' : undefined} onClick={onRowClick ? (e) => { if (!(e.target as HTMLElement).closest('button,a,input,select,label,textarea')) onRowClick(r) } : undefined}>{columns.map((c) => <td key={c.head} className={`td ${c.className ?? ''}`}>{c.render(r)}</td>)}</tr>)}
             {!rows.length && <tr><td className="td text-center text-muted" colSpan={columns.length}>{q ? 'Tidak ada hasil pencarian' : empty}</td></tr>}
           </tbody>
         </table>

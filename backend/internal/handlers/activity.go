@@ -23,6 +23,9 @@ type activityItem struct {
 	Desc  string    `json:"desc"`
 	Tone  string    `json:"tone"` // ok | warn | danger | info | muted
 	Link  string    `json:"link"`
+	// Entity / RefID identify the object the row points at (e.g. leave_request / 12); Link carries ?open=<RefID> where the page can open it.
+	Entity string `json:"entity"`
+	RefID  uint   `json:"ref_id"`
 }
 
 // listActivity: audit rows for what the caller may see — everything for group-level roles without a business filter,
@@ -122,6 +125,7 @@ func listActivity(c *gin.Context, personal bool, date *time.Time, limit, offset 
 		id := uint(n)
 		it := activityItem{ID: r.ID, At: r.CreatedAt, Time: r.CreatedAt.In(jkt).Format("15:04"), Actor: r.UserName, Tone: "info"}
 		describeActivity(&it, r.Action, r.Entity, r.EntityID, id, taskTitle, apTitle, leaveTitle, projName, empName, nikName)
+		it.Entity, it.RefID = r.Entity, id
 		out = append(out, it)
 	}
 	return out, total
@@ -157,23 +161,23 @@ func describeActivity(it *activityItem, action, entity, entityID string, id uint
 			it.Title = "Tugas: " + action
 		}
 	case entity == "approval_request":
-		it.Desc, it.Link = aps[id], "/approval-history"
+		it.Desc, it.Link = aps[id], fmt.Sprintf("/approval-history?open=%d", id)
 		if action == "approve" {
 			it.Title, it.Tone = "Approval disetujui", "ok"
 		} else {
 			it.Title, it.Tone = "Approval ditolak", "danger"
 		}
 	case entity == "leave_request":
-		it.Desc, it.Link = leaves[id], "/leave"
+		it.Desc, it.Link = leaves[id], fmt.Sprintf("/leave?open=%d", id)
 		if action == "cancel" {
 			it.Title, it.Tone = "Pengajuan cuti/izin dibatalkan", "muted"
 		} else {
 			it.Title, it.Tone = "Pengajuan cuti/izin baru", "warn"
 		}
 	case entity == "manual_attendance":
-		it.Title, it.Link, it.Tone = map[string]string{"create": "Pengajuan absensi manual", "cancel": "Pengajuan absensi manual dibatalkan"}[action], "/attendance", "warn"
+		it.Title, it.Link, it.Tone = map[string]string{"create": "Pengajuan absensi manual", "cancel": "Pengajuan absensi manual dibatalkan"}[action], fmt.Sprintf("/attendance?tab=manual&open=%d", id), "warn"
 	case entity == "roster_adjustment":
-		it.Title, it.Link, it.Tone = map[string]string{"create": "Pengajuan penyesuaian roster", "cancel": "Penyesuaian roster dibatalkan"}[action], "/schedule", "warn"
+		it.Title, it.Link, it.Tone = map[string]string{"create": "Pengajuan penyesuaian roster", "cancel": "Penyesuaian roster dibatalkan"}[action], fmt.Sprintf("/schedule?tab=adjust&open=%d", id), "warn"
 	case entity == "attendance":
 		it.Desc, it.Link = niks[entityID], "/attendance"
 		if action == "tap_out" {

@@ -72,10 +72,10 @@ export default function Dashboard() {
     } finally { setBusy(false) }
   }
 
-  const toggle = useMemo(() => (d?.can_team ? (
+  const toggle = useMemo(() => (d?.can_team && d?.can_personal ? (
     <div className="flex gap-0.5 p-0.5 rounded-lg bg-tint" role="tablist" aria-label="Tampilan dashboard">
       {([['team', 'Tim Saya'], ['me', 'Personal']] as const).map(([v, l]) => <button key={v} role="tab" aria-selected={view === v} onClick={() => pick(v)} className={`px-3 py-1.5 rounded-md text-xs font-semibold ${view === v ? 'bg-panel shadow-sm text-brand' : 'text-muted'}`}>{l}</button>)}
-    </div>) : null), [d?.can_team, view])
+    </div>) : null), [d?.can_team, d?.can_personal, view])
   const actions = <>{toggle}<button className="btn" disabled={!d || busy} onClick={exportView}><Download className="w-3.5 h-3.5 inline mr-1" />{busy ? 'Menyiapkan…' : 'Ekspor PDF'}</button></>
 
   if (!d) return <Layout title="Dashboard" subtitle="Ringkasan kondisi people, work dan performance"><p className="text-sm text-muted">{error ? 'Gagal memuat dashboard.' : 'Memuat…'}</p></Layout>
@@ -93,7 +93,7 @@ export default function Dashboard() {
       <Layout title="Dashboard" subtitle="Ringkasan kondisi people, work dan performance" actions={actions}>
         <div className="card p-8 text-center text-sm">
           <b>Akun ini tidak terhubung ke data karyawan</b>
-          <p className="text-muted mt-1">Dashboard Personal menampilkan absensi, cuti, dan tugas milik karyawan. Tautkan akun ke karyawan di Settings, User & Hak Akses, atau pilih <b>Tim Saya</b>.</p>
+          <p className="text-muted mt-1">Dashboard Personal menampilkan absensi, cuti, dan tugas milik karyawan. Tautkan akun ke karyawan di Settings, User & Hak Akses, {d.can_team && <>atau pilih <b>Tim Saya</b></>}.</p>
           {d.can_team && <button className="btn-primary mt-3" onClick={() => pick('team')}>Buka Tim Saya</button>}
         </div>
       </Layout>
@@ -222,9 +222,10 @@ export default function Dashboard() {
         <Section title="Aktivitas Hari Ini" sub="Update terbaru lintas modul" action={<button className="btn" onClick={() => setAllActivity(true)}>Lihat semua{d.activity_total > d.activity.length ? ` (${d.activity_total})` : ''}</button>}>
           <ol className="relative border-l border-line ml-6 mr-4 my-4 space-y-3">
             {d.activity.map((a) => (
-              <li key={a.id} className="pl-4 relative">
+              <li key={a.id} className={`pl-4 relative ${a.link ? 'cursor-pointer rounded-md hover:bg-sunken' : ''}`}
+                onClick={a.link ? () => nav(a.link) : undefined} onKeyDown={a.link ? (e) => { if (e.key === 'Enter') nav(a.link) } : undefined} role={a.link ? 'link' : undefined} tabIndex={a.link ? 0 : undefined}>
                 <span className={`absolute -left-[5px] top-1.5 w-2.5 h-2.5 rounded-full ${dot[a.tone]}`} />
-                <div className="font-semibold">{a.time} · {a.link ? <Link to={a.link} className="hover:underline">{a.title}</Link> : a.title}</div>
+                <div className={`font-semibold ${a.link ? 'hover:underline' : ''}`}>{a.time} · {a.title}</div>
                 <div className="text-[11.5px] text-muted">{a.actor ? `${a.actor}${a.desc ? ' · ' : ''}` : ''}{a.desc}</div>
               </li>
             ))}

@@ -58,7 +58,7 @@ export default function Employees() {
 
   const openDetail = (e: Employee) => {
     setDetail(e); setManagerName('-'); setDetailTab('personal')
-    if (e.manager_id) getEmployee(e.manager_id).then((r) => setManagerName(r.data.name))
+    if (e.manager_id) getEmployee(e.id).then((r) => setManagerName(r.data.manager_name || '-')).catch(() => undefined)
   }
 
   const remove = async (e: Employee) => {

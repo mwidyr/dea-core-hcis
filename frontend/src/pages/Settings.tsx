@@ -6,6 +6,7 @@ import DataTable from '../components/ui/DataTable'
 import Modal from '../components/ui/Modal'
 import Pagination from '../components/ui/Pagination'
 import PasswordInput from '../components/ui/PasswordInput'
+import ApprovalFlowEditor from '../components/settings/ApprovalFlowEditor'
 import Tabs from '../components/ui/Tabs'
 import { useSearchParams } from 'react-router-dom'
 import { useAuthStore } from '../store/auth'
@@ -28,14 +29,14 @@ export default function Settings() {
   const isAdmin = ['super_admin', 'hr_admin'].includes(user?.role ?? '')
   const all: { id: Tab; label: string; perm?: string }[] = [
     { id: 'users', label: 'User & Hak Akses', perm: 'users.manage' }, { id: 'roles', label: 'Role & Izin', perm: 'roles.manage' }, { id: 'drive', label: 'Google Drive', perm: 'drive.manage' }, { id: 'master', label: 'Master Data', perm: 'leave.admin' },
-    { id: 'kpi', label: 'KPI', perm: 'kpi.settings' }, { id: 'workflow', label: 'Workflow Approval' }, { id: 'audit', label: 'Audit Log', perm: 'audit.view' },
+    { id: 'kpi', label: 'KPI', perm: 'kpi.settings' }, { id: 'workflow', label: 'Workflow Approval', perm: 'approval.admin' }, { id: 'audit', label: 'Audit Log', perm: 'audit.view' },
   ]
   const tabs = all.filter((t) => !t.perm || can(t.perm))
   const [params] = useSearchParams() // /settings?tab=drive after returning from Google
   const wanted = params.get('tab') as Tab | null
   const [tab, setTab] = useState<Tab>(wanted && tabs.some((t) => t.id === wanted) ? wanted : tabs[0]?.id ?? 'workflow')
   return (
-    <Layout title="User, Workflow & Master" subtitle="Akun pengguna, role & izin, master data, aturan approval, dan audit log">
+    <Layout title="User, Workflow & Master" subtitle="Akun pengguna, role & izin, master data, alur approval berjenjang per jabatan, dan audit log">
       {!isAdmin ? <div className="card p-8 text-center text-sm text-muted">Halaman ini hanya untuk Super Admin dan HR Admin.</div> : (
         <div className="card p-4">
           <Tabs tabs={tabs.map(({ id, label }) => ({ id, label }))} value={tab} onChange={setTab} />
@@ -44,7 +45,7 @@ export default function Settings() {
           {tab === 'drive' && <DrivePanel result={params.get('drive')} />}
           {tab === 'master' && <LeaveTypes />}
           {tab === 'kpi' && <KpiPanel />}
-          {tab === 'workflow' && <Workflow />}
+          {tab === 'workflow' && <ApprovalFlowEditor />}
           {tab === 'audit' && <Audit />}
         </div>
       )}
@@ -279,21 +280,6 @@ function LeaveTypes() {
         )}
       </Modal>
     </>
-  )
-}
-
-function Workflow() {
-  const Step = ({ n, title, children }: { n: number; title: string; children: React.ReactNode }) => (
-    <div className="flex gap-3"><div className="w-6 h-6 rounded-full bg-brand text-on-brand text-xs font-bold grid place-items-center shrink-0">{n}</div><div><div className="font-bold">{title}</div><div className="text-muted">{children}</div></div></div>
-  )
-  return (
-    <div className="text-xs space-y-4 max-w-2xl">
-      <p className="text-muted">Aturan persetujuan yang berlaku untuk Cuti & Izin (dan modul lain yang memakai approval: absensi manual, tugas, perubahan data karyawan, roster).</p>
-      <Step n={1} title="Default: atasan langsung (n+1)">Pengajuan masuk ke atasan langsung pemohon, dari garis “Melapor ke” pada jabatan. Jabatan atasan yang kosong (vacant) dilewati ke atas.</Step>
-      <Step n={2} title="Bisa ditugaskan ke approver lain">Saat mengajukan, pemohon/HR dapat memilih approver tertentu. Jika approver yang ditugaskan menyetujui, atasan n+1 <b className="text-ink">tidak perlu</b> menyetujui lagi.</Step>
-      <Step n={3} title="Cadangan otomatis">Bila atasan tidak ada atau belum punya akun, pengajuan diarahkan ke HR Admin (lalu Super Admin) agar tidak menggantung.</Step>
-      <Step n={4} title="Hasil">Disetujui → saldo cuti terpotong. Ditolak (alasan wajib) / dibatalkan pemohon → saldo yang dicadangkan dikembalikan.</Step>
-    </div>
   )
 }
 

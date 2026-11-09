@@ -1,4 +1,5 @@
 import BrandLogo from '../components/BrandLogo'
+import BrandWordmark from '../components/BrandWordmark'
 import ThemeToggle from '../components/ThemeToggle'
 import { useEffect, useRef, useState } from 'react'
 import { Camera, CameraOff, CheckCircle2, Clock, LogIn, LogOut, MapPin, MapPinOff, RefreshCw, SwitchCamera, XCircle } from 'lucide-react'
@@ -140,7 +141,7 @@ export default function Absen() {
       <div className="w-full max-w-md">
         <div className="flex items-center justify-center gap-2.5 mb-5">
           <BrandLogo size={36} />
-          <div><b className="text-[15px]">CORE</b><span className="block text-[10px] text-muted">Absensi Karyawan</span></div>
+          <div><BrandWordmark className="text-[15px]" /><span className="block text-[10px] text-muted">Absensi Karyawan</span></div>
         </div>
 
         <div className="card p-6">

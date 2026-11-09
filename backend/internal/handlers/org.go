@@ -70,9 +70,23 @@ func ListPositions(c *gin.Context) {
 	for _, x := range pls {
 		holders[x.PositionID] = x.Name
 	}
+	// non group-level callers only learn the holder when that person is themself or in their downline
+	var visible map[string]bool
+	if !isGroupLevel(c) {
+		visible = map[string]bool{}
+		var names []string
+		hierarchyScope(c, database.DB.Model(&models.Employee{})).Pluck("employees.name", &names)
+		for _, n := range names {
+			visible[n] = true
+		}
+	}
 	out := make([]row, 0, len(l))
 	for _, p := range l {
 		h := holders[p.ID]
+		masked := visible != nil && h != "" && !visible[h]
+		if masked {
+			h = "-"
+		}
 		if h == "" {
 			h = "Vacant"
 		}

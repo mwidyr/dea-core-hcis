@@ -134,7 +134,7 @@ func collectiveDays(emp models.Employee, year int, hs holidaySet) int {
 	if emp.JoinDate != nil && day(*emp.JoinDate).After(from) {
 		from = day(*emp.JoinDate)
 	}
-	return hs.collective(emp.BusinessID, from, time.Date(year, 12, 31, 0, 0, 0, 0, jkt))
+	return hs.collective(holCtx{Biz: emp.BusinessID, Loc: emp.LocationID}, employeeWorkDays(emp), from, time.Date(year, 12, 31, 0, 0, 0, 0, jkt))
 }
 
 // Roster members (shift / site crews) follow their roster instead of the Mon–Fri calendar: only days the roster
@@ -153,7 +153,7 @@ func rosterMemberSet() map[uint]bool {
 func countLeaveDays(emp models.Employee, a, b time.Time) (int, []skippedDay) {
 	res := newResolver(a, b)
 	if _, ok := res.rosterOf[emp.ID]; !ok {
-		return res.hs.workDays(emp.BusinessID, a, b)
+		return res.hs.workDays(res.holCtx(emp), res.calendarFor(emp).WorkDays, a, b)
 	}
 	n := 0
 	skipped := []skippedDay{}
@@ -210,17 +210,20 @@ func leaveHook(tx *gorm.DB, req *models.ApprovalRequest, outcome string) error {
 
 type leaveView struct {
 	models.LeaveRequest
-	EmployeeName    string    `json:"employee_name"`
-	UnitName        string    `json:"unit_name"`
-	BusinessName    string    `json:"business_name"`
-	TypeName        string    `json:"type_name"`
-	Category        string    `json:"category"`
-	TimeState       string    `json:"time_state"`
-	BackDate        time.Time `json:"back_date"`
-	AttachmentCount int       `json:"attachment_count"`
-	WaitingFor      string    `json:"waiting_for"` // current approver's name while pending
-	CanDecide       bool      `json:"can_decide"`  // I am the approver right now
-	CanCancel       bool      `json:"can_cancel"`
+	EmployeeName    string      `json:"employee_name"`
+	UnitName        string      `json:"unit_name"`
+	BusinessName    string      `json:"business_name"`
+	TypeName        string      `json:"type_name"`
+	Category        string      `json:"category"`
+	TimeState       string      `json:"time_state"`
+	BackDate        time.Time   `json:"back_date"`
+	AttachmentCount int         `json:"attachment_count"`
+	WaitingFor      string      `json:"waiting_for"` // current approver's name while pending
+	CanDecide       bool        `json:"can_decide"`  // I am the approver right now
+	CanCancel       bool        `json:"can_cancel"`
+	EmployeeNIK     string      `json:"employee_nik"`
+	PositionName    string      `json:"position_name"`
+	Chain           []chainStep `json:"chain"` // read-only approval chain, visible to the requester too
 }
 
 func ListLeaveRequests(c *gin.Context) {
@@ -235,11 +238,14 @@ func ListLeaveRequests(c *gin.Context) {
 		q = q.Where("leave_requests.employee_id IN (SELECT id FROM employees WHERE name ILIKE ?)", "%"+v+"%")
 	}
 	var l []models.LeaveRequest
-	q.Preload("Employee.Unit").Preload("Employee.Business").Preload("Type").Order("leave_requests.created_at DESC").Limit(1000).Find(&l)
+	q.Preload("Employee.Unit").Preload("Employee.Business").Preload("Employee.Position").Preload("Type").Order("leave_requests.created_at DESC").Limit(1000).Find(&l)
 
-	var ids, approvalIDs []uint
+	var ids, approvalIDs, allApprovalIDs []uint
 	for _, r := range l {
 		ids = append(ids, r.ID)
+		if r.ApprovalID != nil {
+			allApprovalIDs = append(allApprovalIDs, *r.ApprovalID)
+		}
 		if r.Status == "Pending Approval" && r.ApprovalID != nil {
 			approvalIDs = append(approvalIDs, *r.ApprovalID)
 		}
@@ -271,6 +277,7 @@ func ListLeaveRequests(c *gin.Context) {
 		}
 	}
 
+	chains := loadChains(allApprovalIDs)
 	me := myEmployeeID(c)
 	now := today()
 	var res *resolver
@@ -282,6 +289,10 @@ func ListLeaveRequests(c *gin.Context) {
 		v := leaveView{LeaveRequest: r, AttachmentCount: attach[r.ID]}
 		if r.Employee != nil {
 			v.EmployeeName = r.Employee.Name
+			v.EmployeeNIK = r.Employee.NIK
+			if r.Employee.Position != nil {
+				v.PositionName = r.Employee.Position.Title
+			}
 			if r.Employee.Unit != nil {
 				v.UnitName = r.Employee.Unit.Name
 			}
@@ -298,7 +309,7 @@ func ListLeaveRequests(c *gin.Context) {
 				}
 				v.BackDate = d
 			} else {
-				v.BackDate = res.hs.nextWorkday(r.Employee.BusinessID, r.EndDate)
+				v.BackDate = res.hs.nextWorkday(res.holCtx(*r.Employee), res.calendarFor(*r.Employee).WorkDays, r.EndDate)
 			}
 		}
 		if r.Type != nil {
@@ -316,6 +327,7 @@ func ListLeaveRequests(c *gin.Context) {
 			continue
 		}
 		if r.ApprovalID != nil {
+			v.Chain = chains[*r.ApprovalID]
 			if w, ok := wait[*r.ApprovalID]; ok {
 				v.WaitingFor = w.Name
 				mine := me != nil && *me == r.EmployeeID // never decide your own leave, super admin included
@@ -370,11 +382,7 @@ func CreateLeaveRequest(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "jenis dan tanggal wajib diisi"})
 		return
 	}
-	var assigned *uint
-	if v, _ := strconv.ParseUint(c.PostForm("assigned_user_id"), 10, 64); v > 0 {
-		u := uint(v)
-		assigned = &u
-	}
+	// the approver is always resolved automatically (n+1); a client-supplied assigned_user_id is ignored
 	form, _ := c.MultipartForm()
 	var files []*multipartFile
 	if form != nil {
@@ -488,7 +496,7 @@ func CreateLeaveRequest(c *gin.Context) {
 			summary += fmt.Sprintf(" · %d lampiran", len(files))
 		}
 		req, err := approval.Submit(tx, approval.SubmitInput{Type: "leave", RefID: lr.ID, BusinessID: emp.BusinessID,
-			RequesterEmployeeID: &empID, RequesterUserID: requesterUser, Title: lt.Name + " — " + emp.Name, Summary: summary, AssignedUserID: assigned})
+			RequesterEmployeeID: &empID, RequesterUserID: requesterUser, FlowKey: approval.LeaveFlowKey(lt.Category, rosterMemberSet()[empID]), Title: lt.Name + " — " + emp.Name, Summary: summary})
 		if err != nil {
 			return err
 		}

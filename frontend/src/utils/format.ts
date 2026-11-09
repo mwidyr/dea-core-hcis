@@ -12,3 +12,6 @@ export const tenure = (d?: string | null) => {
 }
 export const daysLeft = (d?: string | null) => (d ? Math.ceil((new Date(d).getTime() - Date.now()) / 864e5) : null)
 export const errMsg = (e: any, fallback: string) => e?.response?.data?.error || fallback
+
+// calendar pattern label for users: stored value 'Reguler' is shown as 'Non Roster'
+export const patternLabel = (p: string) => (p === 'Reguler' ? 'Non Roster' : p)

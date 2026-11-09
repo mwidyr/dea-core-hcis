@@ -1,4 +1,5 @@
 import BrandLogo from '../components/BrandLogo'
+import BrandWordmark from '../components/BrandWordmark'
 import ThemeToggle from '../components/ThemeToggle'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -49,7 +50,7 @@ export default function Login() {
         <form onSubmit={submit} className="card p-5 sm:p-7 w-full space-y-4">
           <div className="flex items-center gap-2.5">
             <BrandLogo size={40} />
-            <div><b>CORE</b><div className="text-[11px] text-muted">Business Operations Platform</div></div>
+            <div><BrandWordmark /><div className="text-[11px] text-muted">Business Operations Platform</div></div>
           </div>
           <label className="block text-xs font-semibold">Email<input className="input w-full mt-1" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus /></label>
           <label className="block text-xs font-semibold">Password<div className="mt-1"><PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} required /></div></label>

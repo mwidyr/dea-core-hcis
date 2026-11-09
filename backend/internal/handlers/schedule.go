@@ -18,12 +18,13 @@ import (
 // ---- schedule resolution: what is employee X expected to do on day D? ----
 //
 //  1. employee follows a roster → cycle position decides work/off (holidays do not stop a roster)
-//  2. otherwise their work calendar (or the business default): holiday → "libur", non-work weekday → "off"
+//  2. otherwise their work calendar (or the business default): holiday or non-work day (weekend) → "libur"
+//     ("off" is reserved for roster members; roster-kind holidays only annotate)
 //  Leave is layered on top by the attendance views (it is not part of the schedule).
 
 type Sched struct {
 	Status     string `json:"status"`  // kerja | off | libur
-	Pattern    string `json:"pattern"` // "Reguler" | "Roster 6:2 (hari)"
+	Pattern    string `json:"pattern"` // "Reguler" (shown as "Non Roster") | "Roster 6:2 (hari)"
 	Name       string `json:"name"`
 	Start      string `json:"start"`
 	End        string `json:"end"`
@@ -40,7 +41,7 @@ type resolver struct {
 	calendars map[uint]models.WorkCalendar // by id
 	defaults  map[uint]models.WorkCalendar // by business id
 	rosterOf  map[uint]rosterSlot          // by employee id
-	adjust    map[uint][]models.RosterAdjustment
+	adjust    map[uint]map[string]string   // approved roster adjustments: employee id → date (YYYY-MM-DD) → kerja|off
 	hs        holidaySet
 }
 
@@ -51,7 +52,7 @@ type rosterSlot struct {
 }
 
 func newResolver(from, to time.Time) *resolver {
-	r := &resolver{calendars: map[uint]models.WorkCalendar{}, defaults: map[uint]models.WorkCalendar{}, rosterOf: map[uint]rosterSlot{}, adjust: map[uint][]models.RosterAdjustment{}}
+	r := &resolver{calendars: map[uint]models.WorkCalendar{}, defaults: map[uint]models.WorkCalendar{}, rosterOf: map[uint]rosterSlot{}, adjust: map[uint]map[string]string{}}
 	var cals []models.WorkCalendar
 	database.DB.Where("is_active = true").Find(&cals)
 	for _, c := range cals {
@@ -77,10 +78,14 @@ func newResolver(from, to time.Time) *resolver {
 			r.rosterOf[a.EmployeeID] = rosterSlot{ro, start}
 		}
 	}
-	var adj []models.RosterAdjustment
-	database.DB.Where("status = 'Disetujui' AND end_date >= ? AND start_date <= ?", day(from), day(to)).Order("id").Find(&adj)
+	var adj []models.RosterAdjustmentDay
+	database.DB.Raw(`SELECT d.* FROM roster_adjustment_days d JOIN roster_adjustments a ON a.id = d.roster_adjustment_id
+		WHERE a.status = 'Disetujui' AND d.date >= ? AND d.date <= ? ORDER BY a.id, d.id`, day(from).Format("2006-01-02"), day(to).Format("2006-01-02")).Scan(&adj)
 	for _, a := range adj {
-		r.adjust[a.EmployeeID] = append(r.adjust[a.EmployeeID], a)
+		if r.adjust[a.EmployeeID] == nil {
+			r.adjust[a.EmployeeID] = map[string]string{}
+		}
+		r.adjust[a.EmployeeID][a.Date] = a.Kind // later requests win
 	}
 	r.hs = loadHolidays(from, to)
 	return r
@@ -123,36 +128,66 @@ func (r *resolver) schedule(emp models.Employee, d time.Time) Sched {
 		if rosterWorking(pat, d) {
 			s.Status = "kerja"
 		}
-		for _, a := range r.adjust[emp.ID] { // approved adjustments override the pattern (later ones win)
-			if !day(d).Before(day(a.StartDate)) && !day(d).After(day(a.EndDate)) {
-				s.Status, s.Adjusted = "off", true
-				if a.Kind == "kerja" {
-					s.Status = "kerja"
-				}
+		if k, ok := r.adjust[emp.ID][day(d).Format("2006-01-02")]; ok { // approved per-day adjustments override the pattern
+			s.Status, s.Adjusted = "off", true
+			if k == "kerja" {
+				s.Status = "kerja"
 			}
 		}
-		if hol, ok := r.hs.on(emp.BusinessID, d); ok {
+		// roster-kind holidays are annotation only: the roster keeps its Kerja/OFF status
+		if hol, ok := r.hs.on(r.holCtx(emp), d); ok {
 			s.Holiday = hol.Name
 		}
 		return s
 	}
-	cal, ok := models.WorkCalendar{}, false
-	if emp.WorkCalendarID != nil {
-		cal, ok = r.calendars[*emp.WorkCalendarID]
-	}
-	if !ok {
-		cal, ok = r.defaults[emp.BusinessID]
-	}
-	if !ok { // no calendar configured at all → sensible office default
-		cal = models.WorkCalendar{Name: "Reguler", WorkDays: "1,2,3,4,5", StartTime: "08:00", EndTime: "17:00", BreakStart: "12:00", BreakEnd: "13:00", ToleranceMin: 10, RequireGPS: true}
-	}
-	s := Sched{Pattern: "Reguler", Name: cal.Name, Start: cal.StartTime, End: cal.EndTime, BreakStart: cal.BreakStart, BreakEnd: cal.BreakEnd, Tolerance: cal.ToleranceMin, RequireGPS: cal.RequireGPS, Status: "off"}
-	if hol, ok := r.hs.on(emp.BusinessID, d); ok {
-		s.Status, s.Holiday = "libur", hol.Name
+	cal := r.calendarFor(emp)
+	// non-roster: every non-working day (weekend, or any day outside the calendar) is "libur", never "off"
+	s := Sched{Pattern: "Reguler", Name: cal.Name, Start: cal.StartTime, End: cal.EndTime, BreakStart: cal.BreakStart, BreakEnd: cal.BreakEnd, Tolerance: cal.ToleranceMin, RequireGPS: cal.RequireGPS, Status: "libur"}
+	if hol, ok := r.hs.on(r.holCtx(emp), d); ok {
+		s.Holiday = hol.Name
 	} else if hasDay(cal.WorkDays, day(d).Weekday()) {
 		s.Status = "kerja"
 	}
 	return s
+}
+
+// calendarFor = the employee's work calendar, else the business default, else a Mon–Fri office default.
+func (r *resolver) calendarFor(emp models.Employee) models.WorkCalendar {
+	if emp.WorkCalendarID != nil {
+		if cal, ok := r.calendars[*emp.WorkCalendarID]; ok {
+			return cal
+		}
+	}
+	if cal, ok := r.defaults[emp.BusinessID]; ok {
+		return cal
+	}
+	return models.WorkCalendar{Name: "Reguler", WorkDays: "1,2,3,4,5", StartTime: "08:00", EndTime: "17:00", BreakStart: "12:00", BreakEnd: "13:00", ToleranceMin: 10, RequireGPS: true}
+}
+
+// holCtx = the holiday context of an employee: business, Lokasi Kerja (the roster's location for roster members,
+// else their own) and roster membership.
+func (r *resolver) holCtx(emp models.Employee) holCtx {
+	c := holCtx{Biz: emp.BusinessID, Loc: emp.LocationID}
+	if slot, ok := r.rosterOf[emp.ID]; ok {
+		c.Roster = true
+		if slot.ro.LocationID != nil {
+			c.Loc = slot.ro.LocationID
+		}
+	}
+	return c
+}
+
+// employeeWorkDays resolves an employee's work-calendar days without building a full resolver.
+func employeeWorkDays(emp models.Employee) string {
+	var cal models.WorkCalendar
+	if emp.WorkCalendarID != nil && database.DB.Where("is_active = true").Limit(1).Find(&cal, *emp.WorkCalendarID).Error == nil && cal.ID != 0 {
+		return cal.WorkDays
+	}
+	cal = models.WorkCalendar{}
+	if database.DB.Where("is_active = true AND is_default = true AND business_id = ?", emp.BusinessID).Limit(1).Find(&cal).Error == nil && cal.ID != 0 {
+		return cal.WorkDays
+	}
+	return "1,2,3,4,5"
 }
 
 // ---- time helpers ----
@@ -203,11 +238,11 @@ func computeTimes(s Sched, date time.Time, in, out *time.Time) (late, early, wor
 
 // ---- management API (calendars, rosters) ----
 
-func canManageSchedule(c *gin.Context) bool { return isGroupLevel(c) || canManageHolidays(c) }
+func canManageSchedule(c *gin.Context) bool { return isGroupLevel(c) }
 
 func scheduleGuard(c *gin.Context, businessID uint) bool {
 	if !canManageSchedule(c) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "hanya Super Admin, HR Admin, atau pejabat L1/L2 yang dapat mengatur jadwal kerja"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "hanya Super Admin atau HR Admin yang dapat mengatur jadwal kerja"})
 		return false
 	}
 	if !checkHolidayScope(c, &businessID) {
@@ -362,7 +397,7 @@ func ListRosters(c *gin.Context) {
 		}
 		out = append(out, rosterView{r, rosterLabel(r), int64(len(ids)), ids, ms})
 	}
-	c.JSON(http.StatusOK, gin.H{"data": out, "can_manage": canManageSchedule(c), "can_assign": canManageSchedule(c) || hasDirectReports(c)})
+	c.JSON(http.StatusOK, gin.H{"data": out, "can_manage": canManageSchedule(c), "can_assign": canManageSchedule(c)})
 }
 
 func SaveRoster(c *gin.Context) {
@@ -443,9 +478,8 @@ func isDirectManagerOf(c *gin.Context, empID uint) bool {
 }
 
 // SetRosterEmployees sets who follows a roster, each with their OWN start cycle (the first work day of their
-// cycle — the "off schedule" is derived from it, so it is required). Super admin / HR / L1-L2 manage every
-// member; a direct superior may only add/change/remove their own direct reports. An employee follows one
-// roster only, so anyone listed here is moved out of their previous roster.
+// cycle — the "off schedule" is derived from it, so it is required). Only super admin / HR admin may do this.
+// An employee follows one roster only, so anyone listed here is moved out of their previous roster.
 func SetRosterEmployees(c *gin.Context) {
 	var in struct {
 		Members []struct {
@@ -462,17 +496,14 @@ func SetRosterEmployees(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "roster tidak ditemukan"})
 		return
 	}
-	admin := canManageSchedule(c)
-	if !admin && !hasDirectReports(c) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "hanya admin, HR, pejabat L1/L2, atau atasan langsung yang dapat mengatur anggota roster"})
+	if !canManageSchedule(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "hanya Super Admin atau HR Admin yang dapat mengatur anggota roster"})
 		return
 	}
 	if !checkHolidayScope(c, &ro.BusinessID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "bukan bisnis Anda"})
 		return
 	}
-	manageable := func(empID uint) bool { return admin || isDirectManagerOf(c, empID) }
-
 	seen := map[uint]bool{}
 	for _, m := range in.Members {
 		if m.EmployeeID == 0 || seen[m.EmployeeID] {
@@ -482,10 +513,6 @@ func SetRosterEmployees(c *gin.Context) {
 		seen[m.EmployeeID] = true
 		if m.StartCycle.IsZero() {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "start cycle wajib diisi untuk setiap karyawan roster (tanggal pertama siklus kerjanya)"})
-			return
-		}
-		if !manageable(m.EmployeeID) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Anda hanya dapat mengatur jadwal bawahan langsung Anda"})
 			return
 		}
 		var n int64
@@ -498,8 +525,8 @@ func SetRosterEmployees(c *gin.Context) {
 	err := database.DB.Transaction(func(tx *gorm.DB) error {
 		var current []models.RosterAssignment
 		tx.Where("roster_id = ?", ro.ID).Find(&current)
-		for _, a := range current { // remove members the caller manages and did not keep
-			if !seen[a.EmployeeID] && manageable(a.EmployeeID) {
+		for _, a := range current { // remove members that were not kept
+			if !seen[a.EmployeeID] {
 				if err := tx.Delete(&a).Error; err != nil {
 					return err
 				}

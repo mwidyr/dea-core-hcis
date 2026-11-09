@@ -693,7 +693,9 @@ func KPITaskOptions(c *gin.Context) {
 
 // ---- department KPI ----
 
-func canManageKPI(c *gin.Context) bool { return isGroupLevel(c) || canManageHolidays(c) }
+// canManageKPI: department KPI targets are rules, so only HR admin / super admin. Superiors still assign
+// KPI items to their downline (canAssignKPI) and may view their department KPI (hasDirectReports).
+func canManageKPI(c *gin.Context) bool { return isGroupLevel(c) }
 
 func canViewDeptKPI(c *gin.Context) bool { return canManageKPI(c) || hasDirectReports(c) }
 
@@ -865,7 +867,7 @@ func fillDeptKPI(c *gin.Context, in deptInput, d *models.DeptKPI, isNew bool) st
 
 func CreateDeptKPI(c *gin.Context) {
 	if !canManageKPI(c) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "hanya Super Admin, HR, atau pejabat L1/L2 yang dapat mengatur KPI departemen"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "hanya Super Admin atau HR Admin yang dapat mengatur KPI departemen"})
 		return
 	}
 	var in deptInput

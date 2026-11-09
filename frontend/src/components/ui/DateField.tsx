@@ -30,11 +30,15 @@ interface Props {
   max?: string
   /** whose holidays to mark: a business id (national + that business), 'national' (national only), 0 = everything visible */
   businessId?: number | 'national'
+  /** with a Lokasi Kerja: only holidays of that location (plus nasional / bisnis) are marked; without: all */
+  locationId?: number | null
+  /** true / false: only holidays applying to roster / non roster employees; undefined: all */
+  roster?: boolean
   placeholder?: string
 }
 
 // Date picker that marks holidays: plain day off (green), cuti bersama / potong cuti (amber), weekends (red text).
-export default function DateField({ value, onChange, min, max, businessId = 0, placeholder = 'Pilih tanggal' }: Props) {
+export default function DateField({ value, onChange, min, max, businessId = 0, locationId, roster, placeholder = 'Pilih tanggal' }: Props) {
   const [open, setOpen] = useState(false)
   const todayK = key(new Date().getFullYear(), new Date().getMonth(), new Date().getDate())
   // with no value, open on today — pulled into the allowed range (min / max)
@@ -56,11 +60,11 @@ export default function DateField({ value, onChange, min, max, businessId = 0, p
     Promise.all(years.map((y) => loadYear(businessId, y))).then((lists) => {
       if (!alive) return
       const map: Record<string, Holiday> = {}
-      lists.flat().forEach((h) => { const k = h.date.slice(0, 10); if (!map[k] || h.deducts_leave) map[k] = h })
+      lists.flat().filter((h) => (locationId == null || h.location_id == null || h.location_id === locationId) && (roster === undefined || !h.kind || h.kind === 'semua' || (h.kind === 'roster') === roster)).forEach((h) => { const k = h.date.slice(0, 10); if (!map[k] || h.deducts_leave) map[k] = h })
       setHolidays(map)
     }).catch(() => {})
     return () => { alive = false }
-  }, [open, view.y, view.m, businessId])
+  }, [open, view.y, view.m, businessId, locationId, roster])
 
   const place = () => {
     const r = btn.current?.getBoundingClientRect()
@@ -135,7 +139,7 @@ export default function DateField({ value, onChange, min, max, businessId = 0, p
           </div>
           <div className="mt-2 pt-2 border-t border-line min-h-[34px]">
             {hovered ? (
-              <div><b>{hovered.name}</b><div className="text-muted">{hovered.deducts_leave ? 'Cuti bersama — memotong saldo cuti' : 'Libur — tidak memotong cuti'}{hovered.business_id === null ? ' · nasional' : ' · khusus bisnis ini'}</div></div>
+              <div><b>{hovered.name}</b><div className="text-muted">{hovered.deducts_leave ? 'Cuti bersama — memotong saldo cuti' : 'Libur — tidak memotong cuti'}{hovered.business_id === null ? ' · nasional' : hovered.location_name ? ` · ${hovered.location_name}` : ' · khusus bisnis ini'}{hovered.kind === 'roster' ? ' · roster: hanya keterangan' : hovered.kind === 'non_roster' ? ' · non roster' : ''}</div></div>
             ) : (
               <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10.5px] text-muted">
                 <span><i className="inline-block w-2 h-2 rounded-full bg-ok mr-1" />Libur</span>

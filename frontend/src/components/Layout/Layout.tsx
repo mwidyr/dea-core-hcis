@@ -6,6 +6,7 @@ import { useAuthStore } from '../../store/auth'
 import { useBusinessStore } from '../../store/business'
 import { getApprovalCount, getMe } from '../../services/api'
 import BrandLogo from '../BrandLogo'
+import BrandWordmark from '../BrandWordmark'
 import ThemeToggle from '../ThemeToggle'
 import NotificationBell from './NotificationBell'
 
@@ -62,7 +63,7 @@ export default function Layout({ title, subtitle, actions, children }: { title: 
         <div className={`flex items-center pt-1 pb-4 gap-2.5 px-2 ${slim ? 'lg:flex-col lg:gap-2 lg:px-0' : ''}`}>
           <BrandLogo size={slim ? 36 : 42} />
           <div className={`flex-1 min-w-0 ${slim ? 'lg:hidden' : ''}`}>
-            <b className="text-base tracking-[.08em] text-danger">CORE</b>
+            <BrandWordmark className="text-base" />
             <span className="block text-[9.5px] text-muted truncate tracking-[.015em]">Business Operations Platform</span>
           </div>
           <button onClick={toggle} className="hidden lg:block p-1.5 rounded-lg text-muted hover:bg-sunken shrink-0" title={slim ? 'Tampilkan menu' : 'Sembunyikan menu'} aria-label={slim ? 'Tampilkan menu' : 'Sembunyikan menu'}>

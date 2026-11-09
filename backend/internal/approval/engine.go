@@ -53,7 +53,8 @@ type SubmitInput struct {
 	RequesterUserID     uint
 	Title, Summary      string
 	AssignedUserID      *uint
-	Levels              int // n+1 levels for this request (0 = the type's default)
+	Levels              int    // n+1 levels for this request (0 = the type's default)
+	FlowKey             string // approval flow key (see FlowKeys); empty = no flow, legacy n+1
 }
 
 var (
@@ -78,6 +79,20 @@ func MayDecide(stepApprover, actor uint, actorRole string, requesterUser uint, r
 		return ErrNotAllowed
 	}
 	return nil
+}
+
+// CanDecideNow tells whether actor may decide req right now: the request is pending, its current step is
+// pending, and MayDecide allows the actor. req.Steps must be loaded.
+func CanDecideNow(req *models.ApprovalRequest, actor uint, actorRole string, actorEmp *uint) bool {
+	if req.Status != Pending {
+		return false
+	}
+	for _, s := range req.Steps {
+		if s.Level == req.CurrentLevel && s.Status == Pending {
+			return MayDecide(s.ApproverUserID, actor, actorRole, req.RequesterUserID, req.RequesterEmployeeID, actorEmp) == nil
+		}
+	}
+	return false
 }
 
 func employeeOfUser(tx *gorm.DB, userID uint) *uint {
@@ -112,41 +127,152 @@ func fallbackUser(tx *gorm.DB, exclude uint) uint {
 	return 0
 }
 
-// chain returns the approver chain as (userID, kind).
-func chain(tx *gorm.DB, in SubmitInput) [][2]any {
-	if in.AssignedUserID != nil && *in.AssignedUserID != in.RequesterUserID {
-		return [][2]any{{*in.AssignedUserID, "assigned"}} // assigned approver replaces the n+1 chain
-	}
-	var out [][2]any
-	seen := map[uint]bool{in.RequesterUserID: true}
-	cur := in.RequesterEmployeeID
-	for i := 0; i < levelsFor(in.Type, in.Levels) && cur != nil; i++ {
+// dbLookup resolves flow steps against the database for one requester.
+type dbLookup struct {
+	tx         *gorm.DB
+	in         SubmitInput
+	businessID uint
+}
+
+func (l dbLookup) DirectManager() uint {
+	cur := l.in.RequesterEmployeeID
+	for i := 0; i < 10 && cur != nil; i++ { // a manager without an account is passed over to the next one up
 		var e models.Employee
-		if tx.Select("id, manager_id").Limit(1).Find(&e, *cur).Error != nil || e.ManagerID == nil {
-			break
+		if l.tx.Select("id, manager_id").Limit(1).Find(&e, *cur).Error != nil || e.ManagerID == nil {
+			return 0
 		}
 		cur = e.ManagerID
-		if uid := userOfEmployee(tx, *cur); uid != 0 && !seen[uid] {
-			seen[uid] = true
-			out = append(out, [2]any{uid, "n+1"})
+		if uid := userOfEmployee(l.tx, *cur); uid != 0 {
+			return uid
 		}
 	}
-	if len(out) == 0 { // no manager / manager has no account
+	return 0
+}
+
+// PositionHolder: the active user of an employee holding the jabatan (primary position or a placement),
+// preferring the requester's own business, then the lowest employee id.
+func (l dbLookup) PositionHolder(posID uint, avoid map[uint]bool) uint {
+	var ids []uint
+	l.tx.Raw(`SELECT e.id FROM employees e WHERE e.is_active = true AND (e.position_id = ?
+		OR EXISTS (SELECT 1 FROM employee_placements p WHERE p.employee_id = e.id AND p.position_id = ?))
+		ORDER BY (CASE WHEN e.business_id = ? THEN 0 ELSE 1 END), e.id`, posID, posID, l.businessID).Scan(&ids)
+	for _, id := range ids {
+		if l.in.RequesterEmployeeID != nil && id == *l.in.RequesterEmployeeID {
+			continue
+		}
+		if uid := userOfEmployee(l.tx, id); uid != 0 && !avoid[uid] {
+			return uid
+		}
+	}
+	return 0
+}
+
+func (l dbLookup) hrUser() models.User {
+	var u models.User
+	l.tx.Where("role = 'hr_admin' AND is_active = true AND id <> ?", l.in.RequesterUserID).Order("id").Limit(1).Find(&u)
+	return u
+}
+
+func (l dbLookup) HR() uint { return l.hrUser().ID }
+
+func (l dbLookup) HRSuperior() uint {
+	if hr := l.hrUser(); hr.ID != 0 && hr.EmployeeID != nil {
+		var e models.Employee
+		if l.tx.Select("id, manager_id").Limit(1).Find(&e, *hr.EmployeeID).Error == nil && e.ManagerID != nil {
+			if uid := userOfEmployee(l.tx, *e.ManagerID); uid != 0 {
+				return uid
+			}
+		}
+	}
+	var u models.User // no superior / no account: a super admin
+	l.tx.Where("role = 'super_admin' AND is_active = true AND id <> ?", l.in.RequesterUserID).Order("id").Limit(1).Find(&u)
+	return u.ID
+}
+
+// positionsOf: every jabatan the employee holds (primary + placements).
+func positionsOf(tx *gorm.DB, empID *uint) []uint {
+	if empID == nil {
+		return nil
+	}
+	var ids []uint
+	tx.Raw(`SELECT position_id FROM employees WHERE id = ? AND position_id IS NOT NULL
+		UNION SELECT position_id FROM employee_placements WHERE employee_id = ?`, *empID, *empID).Scan(&ids)
+	return ids
+}
+
+// FindFlow loads the most specific active flow for in.FlowKey (nil = none: legacy n+1).
+func FindFlow(tx *gorm.DB, in SubmitInput) *models.ApprovalFlow {
+	if in.FlowKey == "" {
+		return nil
+	}
+	var flows []models.ApprovalFlow
+	tx.Preload("Steps").Preload("Requesters").Where("request_type = ? AND is_active = true", in.FlowKey).Find(&flows)
+	cands := make([]FlowCandidate, 0, len(flows))
+	for _, f := range flows {
+		c := FlowCandidate{ID: f.ID, BusinessID: f.BusinessID}
+		for _, r := range f.Requesters {
+			c.Requesters = append(c.Requesters, r.PositionID)
+		}
+		cands = append(cands, c)
+	}
+	id, ok := PickFlow(cands, in.BusinessID, positionsOf(tx, in.RequesterEmployeeID))
+	if !ok {
+		return nil
+	}
+	for i := range flows {
+		if flows[i].ID == id {
+			return &flows[i]
+		}
+	}
+	return nil
+}
+
+// Resolve is THE resolver: Preview and Submit both use it, so the preview equals the submitted chain.
+// Order: assigned approver > configured flow (most specific) > legacy n+1; when nothing resolves, the fallback
+// (HR, then super admin) so a request never gets stuck.
+func Resolve(tx *gorm.DB, in SubmitInput) (flowID *uint, steps []ResolvedStep) {
+	if in.AssignedUserID != nil && *in.AssignedUserID != in.RequesterUserID {
+		return nil, []ResolvedStep{{UserID: *in.AssignedUserID, Kind: "assigned"}} // assigned approver replaces the chain
+	}
+	if f := FindFlow(tx, in); f != nil {
+		steps = ResolveSteps(f.Steps, in.RequesterUserID, dbLookup{tx, in, in.BusinessID})
+		id := f.ID
+		flowID = &id
+	} else {
+		seen := map[uint]bool{in.RequesterUserID: true}
+		cur := in.RequesterEmployeeID
+		for i := 0; i < levelsFor(in.Type, in.Levels) && cur != nil; i++ {
+			var e models.Employee
+			if tx.Select("id, manager_id").Limit(1).Find(&e, *cur).Error != nil || e.ManagerID == nil {
+				break
+			}
+			cur = e.ManagerID
+			if uid := userOfEmployee(tx, *cur); uid != 0 && !seen[uid] {
+				seen[uid] = true
+				steps = append(steps, ResolvedStep{UserID: uid, Kind: "n+1"})
+			}
+		}
+	}
+	if len(steps) == 0 { // no manager / nobody resolvable
 		if f := fallbackUser(tx, in.RequesterUserID); f != 0 {
-			out = append(out, [2]any{f, "fallback"})
+			steps = append(steps, ResolvedStep{UserID: f, Kind: "fallback"})
 		}
 	}
-	return out
+	return flowID, steps
 }
 
 // Preview returns who would approve, without creating anything (for the request form).
 func Preview(tx *gorm.DB, in SubmitInput) []uint {
+	_, steps := Resolve(tx, in)
 	var ids []uint
-	for _, s := range chain(tx, in) {
-		ids = append(ids, s[0].(uint))
+	for _, s := range steps {
+		ids = append(ids, s.UserID)
 	}
 	return ids
 }
+
+// PreviewSteps is Preview with the step kinds and flow id.
+func PreviewSteps(tx *gorm.DB, in SubmitInput) (*uint, []ResolvedStep) { return Resolve(tx, in) }
 
 func Submit(tx *gorm.DB, in SubmitInput) (*models.ApprovalRequest, error) {
 	if in.AssignedUserID != nil { // an assigned approver replaces the whole chain, so it must be a real approver
@@ -155,13 +281,13 @@ func Submit(tx *gorm.DB, in SubmitInput) (*models.ApprovalRequest, error) {
 			return nil, ErrBadApprover
 		}
 	}
-	steps := chain(tx, in)
+	flowID, steps := Resolve(tx, in)
 	if len(steps) == 0 {
 		return nil, errors.New("tidak ada approver yang dapat ditentukan")
 	}
 	req := &models.ApprovalRequest{BusinessID: in.BusinessID, RequestType: in.Type, RefID: in.RefID,
 		RequesterEmployeeID: in.RequesterEmployeeID, RequesterUserID: in.RequesterUserID,
-		Title: in.Title, Summary: in.Summary, Status: Pending, AssignedUserID: in.AssignedUserID, CurrentLevel: 1}
+		Title: in.Title, Summary: in.Summary, Status: Pending, AssignedUserID: in.AssignedUserID, CurrentLevel: 1, FlowID: flowID}
 	if err := tx.Create(req).Error; err != nil {
 		return nil, err
 	}
@@ -170,7 +296,7 @@ func Submit(tx *gorm.DB, in SubmitInput) (*models.ApprovalRequest, error) {
 		if i == 0 {
 			st = Pending
 		}
-		if err := tx.Create(&models.ApprovalStep{RequestID: req.ID, Level: i + 1, ApproverUserID: s[0].(uint), Kind: s[1].(string), Status: st}).Error; err != nil {
+		if err := tx.Create(&models.ApprovalStep{RequestID: req.ID, Level: i + 1, ApproverUserID: s.UserID, Kind: s.Kind, PositionID: s.PositionID, Status: st}).Error; err != nil {
 			return nil, err
 		}
 	}

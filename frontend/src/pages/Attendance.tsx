@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Camera, Copy, ExternalLink, Plus } from 'lucide-react'
 import Layout from '../components/Layout/Layout'
 import AttendancePhotoViewer from '../components/AttendancePhotoViewer'
@@ -7,10 +8,14 @@ import DataTable from '../components/ui/DataTable'
 import DateField from '../components/ui/DateField'
 import Modal from '../components/ui/Modal'
 import Tabs from '../components/ui/Tabs'
+import { patternLabel } from '../utils/format'
+import ApprovalPreview from '../components/approval/ApprovalPreview'
+import ApprovalChain from '../components/approval/ApprovalChain'
+import ApprovalTimeline from '../components/approval/ApprovalTimeline'
 import { useAuthStore } from '../store/auth'
 import { bizParams, useBusinessStore } from '../store/business'
-import { cancelManualAttendance, createManualAttendance, getApprovers, getAttendanceDaily, getAttendanceRecap, getAttendanceSchedule, getLeaveBalances, getManualAttendance } from '../services/api'
-import type { AttRow, AttStatus, AttSummary, ManualRow, Person, RecapRow, ShiftRow } from '../types'
+import { cancelManualAttendance, createManualAttendance, getApproval, getApprovers, getAttendanceDaily, getAttendanceRecap, getAttendanceSchedule, getLeaveBalances, getManualAttendance } from '../services/api'
+import type { ApprovalRequest, AttRow, AttStatus, AttSummary, ManualRow, PreviewStep, RecapRow, ShiftRow } from '../types'
 
 type Tab = 'daily' | 'recap' | 'schedule' | 'manual'
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -19,12 +24,15 @@ const dur = (m: number) => (m ? `${Math.floor(m / 60)}j ${m % 60}m` : '–')
 const fmtDate = (d: string) => new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: '2-digit' })
 const tone: Record<AttStatus, 'green' | 'amber' | 'red' | 'blue' | 'purple' | 'gray'> = { 'Menunggu Approval Lokasi': 'amber', Hadir: 'green', Terlambat: 'amber', 'Belum Absen': 'gray', 'Tidak Hadir': 'red', Cuti: 'blue', Izin: 'purple', Sakit: 'purple', OFF: 'gray', Libur: 'gray', Terjadwal: 'gray' }
 const manualTone = { 'Pending Approval': 'amber', Disetujui: 'green', Ditolak: 'red', Dibatalkan: 'gray' } as const
+const ACCUM_HINT = 'Akumulasi dihitung dari tanggal mulai terakhir antara DOH dan awal siklus roster karyawan (tanggal masuk roster belum tersimpan), sampai akhir siklus berjalan. Termasuk penyesuaian/kompensasi roster yang disetujui. Cuti = cuti disetujui pada hari kerja roster.'
 const err = (e: any, f: string) => e.response?.data?.error || f
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, 'id', { sensitivity: 'base' }) // default order: nama A–Z
 
 export default function Attendance() {
   const { businessId } = useBusinessStore()
-  const [tab, setTab] = useState<Tab>('daily')
+  const [params, setParams] = useSearchParams()
+  const [tab, setTab] = useState<Tab>(params.get('tab') === 'manual' ? 'manual' : 'daily')
+  const [detail, setDetail] = useState<ManualRow | null>(null)
   const [date, setDate] = useState(ymd(new Date()))
   const [month, setMonth] = useState(ymd(new Date()).slice(0, 7))
   const [daily, setDaily] = useState<{ rows: AttRow[]; summary: AttSummary }>({ rows: [], summary: {} })
@@ -45,6 +53,13 @@ export default function Attendance() {
     if (tab === 'manual') getManualAttendance(p).then((r) => setManual(r.data))
   }
   useEffect(load, [businessId, tab, date, month])
+  // deep link from an activity row: /attendance?tab=manual&open=<id> opens that request's detail once the list is loaded
+  useEffect(() => {
+    const o = Number(params.get('open'))
+    if (!o) return
+    const r = manual.find((x) => x.id === o)
+    if (r) { setDetail(r); setParams({}, { replace: true }) }
+  }, [params, manual])
 
   const copy = async () => { try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1800) } catch { window.prompt('Salin link absen:', link) } }
   const s = daily.summary
@@ -78,7 +93,7 @@ export default function Attendance() {
               <div className="text-[10.5px] text-muted font-semibold">HARI NON-KERJA</div>
               <div className="flex items-end gap-5 mt-1">
                 <div><span className="text-3xl font-extrabold">{s.nonkerja ?? 0}</span> <span className="text-xs text-muted">orang</span></div>
-                <Stat label="Cuti" v={s.cuti} /><Stat label="OFF" v={s.off} /><Stat label="Libur" v={s.libur} />
+                <Stat label="Cuti" v={s.cuti} /><Stat label="OFF (Roster)" v={s.off} /><Stat label="Libur (Non Roster)" v={s.libur} />
               </div>
             </div>
           </div>
@@ -102,7 +117,7 @@ export default function Attendance() {
             ]} />
         </>}
 
-        {tab === 'recap' && (
+        {tab === 'recap' && (<>
           <DataTable data={recap} rowKey={(r) => r.employee_id} searchPlaceholder="Cari nama atau NIK…" searchText={(r) => `${r.name} ${r.nik} ${r.business_name}`}
             filters={<input className="input" type="month" value={month} onChange={(e) => setMonth(e.target.value)} />}
             columns={[
@@ -115,20 +130,26 @@ export default function Attendance() {
               { head: 'Izin', render: (r) => r.izin },
               { head: 'Sakit', render: (r) => r.sakit },
               { head: 'Kerja Hari Libur', render: (r) => r.worked_off },
-              { head: 'OFF / Libur', render: (r) => `${r.off} / ${r.holiday}` },
+              { head: 'OFF Roster / Libur', render: (r) => `${r.off} / ${r.holiday}` },
               { head: 'Total Jam', render: (r) => dur(r.work_minutes) },
               { head: 'Kehadiran', render: (r) => <b className={r.rate >= 90 ? 'text-ok' : r.rate >= 75 ? 'text-warn' : 'text-danger'}>{r.rate}%</b> },
+              { head: 'DOH', render: (r) => r.cycle_no === undefined ? '-' : r.doh ? fmtDate(r.doh) : <span className="text-muted">–</span> },
+              { head: 'Siklus Roster', render: (r) => r.cycle_no === undefined ? '-' : <div className="whitespace-nowrap">Siklus ke-{r.cycle_no}<div className="text-muted text-[11px]">{fmtDate(r.cycle_start!)} – {fmtDate(r.cycle_end!)}</div></div> },
+              { head: 'Kerja / OFF / Cuti Siklus', render: (r) => r.cycle_no === undefined ? '-' : <span className="whitespace-nowrap">{r.cycle_work} / {r.cycle_off} / {r.cycle_cuti}</span> },
+              { head: 'Akumulasi dari DOH (Kerja / OFF / Cuti)', hint: ACCUM_HINT, render: (r) => r.cycle_no === undefined ? '-' : <span className="whitespace-nowrap" title={`Dihitung sejak ${fmtDate(r.accum_from!)} sampai akhir siklus ${fmtDate(r.cycle_end!)}`}><b>{r.cum_work}</b> / <b>{r.cum_off}</b> / <b>{r.cum_cuti}</b></span> },
             ]} />
+          <p className="text-muted text-[11px] mt-2">Kolom DOH dan siklus hanya untuk karyawan roster. {ACCUM_HINT}</p>
+        </>
         )}
 
         {tab === 'schedule' && (
-          <DataTable data={shifts} rowKey={(r) => r.employee_id} searchPlaceholder="Cari nama, NIK, lokasi, pola…" searchText={(r) => `${r.name} ${r.nik} ${r.location_name} ${r.pattern} ${r.schedule_name}`}
+          <DataTable data={shifts} rowKey={(r) => r.employee_id} searchPlaceholder="Cari nama, NIK, lokasi, pola…" searchText={(r) => `${r.name} ${r.nik} ${r.location_name} ${patternLabel(r.pattern)} ${r.schedule_name}`}
             filters={<div className="w-40"><DateField value={date} onChange={setDate} businessId={businessId} /></div>}
             columns={[
               { head: 'Karyawan', render: (r) => <div><b>{r.name}</b><div className="text-muted text-[11px]">{r.nik} · {r.business_name}</div></div> },
               { head: 'Lokasi', render: (r) => r.location_name || '-' },
               { head: 'Kebijakan', render: (r) => <span className="text-muted">{r.policy}</span> },
-              { head: 'Pola', render: (r) => <div>{r.pattern}{r.adjusted && <> <Badge tone="purple">Disesuaikan</Badge></>}<div className="text-muted text-[11px]">{r.schedule_name}</div></div> },
+              { head: 'Pola', render: (r) => <div>{patternLabel(r.pattern)}{r.adjusted && <> <Badge tone="purple">Disesuaikan</Badge></>}<div className="text-muted text-[11px]">{r.schedule_name}</div></div> },
               { head: 'Hari Ini', render: (r) => <Badge tone={r.today_state === 'kerja' ? 'green' : 'gray'}>{r.today}</Badge> },
               { head: 'Besok', render: (r) => <Badge tone={r.tomorrow_state === 'kerja' ? 'green' : 'gray'}>{r.tomorrow}</Badge> },
             ]} />
@@ -144,11 +165,13 @@ export default function Attendance() {
               { head: 'Jam', render: (r) => `${r.check_in} – ${r.check_out}` },
               { head: 'Alasan', render: (r) => r.reason },
               { head: 'Status', render: (r) => <div><Badge tone={manualTone[r.status]}>{r.status === 'Pending Approval' ? 'Menunggu Persetujuan' : r.status}</Badge>{r.waiting_for && <div className="text-[10.5px] text-muted mt-0.5">oleh {r.waiting_for}</div>}</div> },
-              { head: 'Aksi', render: (r) => r.can_cancel && <button className="btn text-danger" onClick={async () => { if (confirm('Batalkan pengajuan ini?')) { try { await cancelManualAttendance(r.id); load() } catch (e: any) { alert(err(e, 'Gagal membatalkan')) } } }}>Batalkan</button> },
+              { head: 'Alur Persetujuan', render: (r) => <ApprovalChain chain={r.chain} /> },
+              { head: 'Aksi', render: (r) => <div className="flex gap-1.5 whitespace-nowrap"><button className="btn" onClick={() => setDetail(r)}>Detail</button>{r.can_cancel && <button className="btn text-danger" onClick={async () => { if (confirm('Batalkan pengajuan ini?')) { try { await cancelManualAttendance(r.id); load() } catch (e: any) { alert(err(e, 'Gagal membatalkan')) } } }}>Batalkan</button>}</div> },
             ]} />
         )}
       </div>
 
+      {detail && <ManualDetail row={detail} onClose={() => setDetail(null)} />}
       {form && <ManualForm businessId={businessId} onClose={() => setForm(false)} onSaved={() => { setForm(false); load() }} />}
       {photoRow && <AttendancePhotoViewer recordId={photoRow.record_id} name={photoRow.name} hasIn={photoRow.has_in_photo} hasOut={photoRow.has_out_photo} onClose={() => setPhotoRow(null)} />}
     </Layout>
@@ -156,6 +179,31 @@ export default function Attendance() {
 }
 
 const Stat = ({ label, v }: { label: string; v?: number }) => <div className="text-center"><div className="text-lg font-bold leading-none">{v ?? 0}</div><div className="text-[10px] text-muted mt-0.5">{label}</div></div>
+
+function ManualDetail({ row, onClose }: { row: ManualRow; onClose: () => void }) {
+  const [ap, setAp] = useState<ApprovalRequest | null>(null)
+  const [apError, setApError] = useState('')
+  useEffect(() => {
+    if (!row.approval_id) { setApError('Alur persetujuan tidak tersedia untuk pengajuan ini.'); return }
+    getApproval(row.approval_id).then((r) => setAp(r.data)).catch((e) => setApError(err(e, 'Alur persetujuan tidak dapat dimuat.')))
+  }, [row.approval_id])
+  return (
+    <Modal open onClose={onClose} title={`Absensi Manual — ${row.employee_name}`}>
+      <div className="space-y-4 text-xs">
+        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {[['Karyawan', `${row.employee_name}${row.unit_name ? ` (${row.unit_name})` : ''}`], ['Tanggal', fmtDate(row.date)], ['Jam', `${row.check_in} – ${row.check_out}`], ['Status', row.status], ['Alasan', row.reason]].map(([k, v]) => (
+            <div key={k}><dt className="text-muted text-[10.5px]">{k}</dt><dd className="font-semibold">{v}</dd></div>
+          ))}
+        </dl>
+        <div>
+          <div className="font-bold mb-1.5">Alur Persetujuan</div>
+          {ap ? <ApprovalTimeline steps={ap.steps} /> : apError ? <p className="text-danger bg-danger-soft rounded-lg px-3 py-2">{apError}</p> : <p className="text-muted">Memuat…</p>}
+        </div>
+        <div className="flex justify-end"><button className="btn" onClick={onClose}>Tutup</button></div>
+      </div>
+    </Modal>
+  )
+}
 
 function ManualForm({ businessId, onClose, onSaved }: { businessId: number; onClose: () => void; onSaved: () => void }) {
   const user = useAuthStore((s) => s.user)
@@ -165,18 +213,15 @@ function ManualForm({ businessId, onClose, onSaved }: { businessId: number; onCl
   const [inT, setInT] = useState('08:00')
   const [outT, setOutT] = useState('17:00')
   const [reason, setReason] = useState('')
-  const [nplus, setNplus] = useState<Person[]>([])
-  const [cands, setCands] = useState<Person[]>([])
-  const [assigned, setAssigned] = useState(0)
+  const [chain, setChain] = useState<PreviewStep[]>([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
   useEffect(() => { // people this user may file for = the same scope as leave: self (+ subordinates / everyone for HR)
     getLeaveBalances({ ...bizParams(businessId), year: new Date().getFullYear() }).then((r) => { setOpts(r.data); if (!employeeId && r.data.length) setEmployeeId(r.data[0].employee_id) })
   }, [])
-  useEffect(() => { if (employeeId) { setAssigned(0); getApprovers(employeeId).then((r) => { setNplus(r.data.nplus1); setCands(r.data.candidates) }) } }, [employeeId])
+  useEffect(() => { if (employeeId) getApprovers(employeeId, { request: 'attendance_manual' }).then((r) => setChain(r.data.chain)).catch(() => setChain([])) }, [employeeId])
   const biz = opts.find((o) => o.employee_id === employeeId)?.business_id ?? 0
-  const assignedPerson = cands.find((c) => c.user_id === assigned)
   const todayStr = ymd(new Date())
   const minDate = ymd(new Date(Date.now() - 31 * 864e5))
 
@@ -187,7 +232,7 @@ function ManualForm({ businessId, onClose, onSaved }: { businessId: number; onCl
     if (!reason.trim()) return setError('Alasan wajib diisi')
     if (outT <= inT) return setError('Jam keluar harus setelah jam masuk')
     setBusy(true)
-    try { await createManualAttendance({ employee_id: employeeId, date, check_in: inT, check_out: outT, reason, assigned_user_id: assigned || null }); onSaved() } catch (e: any) { setError(err(e, 'Gagal mengajukan')) } finally { setBusy(false) }
+    try { await createManualAttendance({ employee_id: employeeId, date, check_in: inT, check_out: outT, reason }); onSaved() } catch (e: any) { setError(err(e, 'Gagal mengajukan')) } finally { setBusy(false) }
   }
   return (
     <Modal open onClose={onClose} title="Ajukan Absensi Manual">
@@ -204,13 +249,7 @@ function ManualForm({ businessId, onClose, onSaved }: { businessId: number; onCl
           <label className="block font-semibold">Jam keluar<input className="input w-full mt-1" type="time" value={outT} onChange={(e) => setOutT(e.target.value)} /></label>
         </div>
         <label className="block font-semibold">Alasan<textarea className="input w-full mt-1" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="mis. lupa tap in, GPS bermasalah, dinas luar" /></label>
-        <div className="border border-line rounded-lg p-3 bg-sunken/60 space-y-2">
-          <div className="font-bold">Persetujuan</div>
-          {assigned ? <div className="text-ok bg-ok-soft rounded px-2 py-1.5">Hanya <b>{assignedPerson?.name}</b> yang menyetujui. Atasan (n+1) tidak diperlukan.</div> : <div>Atasan langsung (n+1): <b>{nplus.length ? nplus.map((p) => p.name).join(' → ') : '—'}</b></div>}
-          <label className="block font-semibold">Tugaskan ke approver lain <span className="font-normal text-muted">(opsional)</span>
-            <select className="input w-full mt-1" value={assigned} onChange={(e) => setAssigned(Number(e.target.value))}><option value={0}>— Tidak, gunakan atasan (n+1) —</option>{cands.map((c) => <option key={c.user_id} value={c.user_id}>{c.name} ({c.role})</option>)}</select>
-          </label>
-        </div>
+        <ApprovalPreview chain={chain} />
         {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}
         <div className="flex justify-end gap-2"><button className="btn" onClick={onClose}>Batal</button><button className="btn-primary" disabled={busy} onClick={submit}>{busy ? 'Mengirim…' : 'Ajukan'}</button></div>
       </div>

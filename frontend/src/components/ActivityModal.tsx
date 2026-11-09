@@ -37,11 +37,12 @@ export default function ActivityModal({ scope, onClose }: { scope: 'me' | 'team'
         </div>
         <ol className="relative border-l border-line ml-2 space-y-3 min-h-[8rem]">
           {rows.map((a) => (
-            <li key={a.id} className="pl-4 relative">
+            <li key={a.id} className={`pl-4 relative ${a.link ? 'cursor-pointer rounded-md hover:bg-sunken' : ''}`}
+              onClick={a.link ? () => { onClose(); nav(a.link) } : undefined} onKeyDown={a.link ? (e) => { if (e.key === 'Enter') { onClose(); nav(a.link) } } : undefined} role={a.link ? 'link' : undefined} tabIndex={a.link ? 0 : undefined}>
               <span className={`absolute -left-[5px] top-1.5 w-2.5 h-2.5 rounded-full ${dot[a.tone]}`} />
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-muted tabular-nums">{allDays ? `${new Date(a.at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })} · ` : ''}{a.time}</span>
-                {a.link ? <button className="font-semibold text-left hover:underline" onClick={() => { onClose(); nav(a.link) }}>{a.title}</button> : <b>{a.title}</b>}
+                <b className={a.link ? 'hover:underline' : ''}>{a.title}</b>
                 {a.actor && <Badge tone="gray">{a.actor}</Badge>}
               </div>
               {a.desc && <div className="text-muted">{a.desc}</div>}

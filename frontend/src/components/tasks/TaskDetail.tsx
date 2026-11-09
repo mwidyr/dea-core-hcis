@@ -16,7 +16,7 @@ import type { ApprovalRequest, FileItem, TaskDetailData, TaskHistoryRow } from '
 import { STATUS_LABEL, STATUS_TONE, TIMELINESS_LABEL, TIMELINESS_TONE, doneClass, dt, err, fmt, initials } from './taskUtils'
 
 const MAX_FILE = 10 * 1024 * 1024
-const kindLabel = { 'n+1': 'atasan', assigned: 'ditugaskan', fallback: 'HR' } as const
+const kindLabel: Record<string, string> = { 'n+1': 'atasan', assigned: 'ditugaskan', fallback: 'HR', direct_manager: 'atasan langsung', position: 'jabatan', hr: 'HR', hr_superior: 'atasan HR' }
 
 interface Props { id: number; onClose: () => void; onChanged: () => void; onOpen: (id: number) => void }
 

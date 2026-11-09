@@ -184,11 +184,15 @@ type ApprovalRequest struct {
 	Status              string         `gorm:"index" json:"status"` // Pending | Approved | Rejected | Cancelled
 	AssignedUserID      *uint          `json:"assigned_user_id"`    // set → this approver decides alone, n+1 is skipped
 	CurrentLevel        int            `json:"current_level"`
+	FlowID              *uint          `json:"flow_id"` // approval flow the chain was resolved from (snapshot; nil = legacy n+1)
 	DecisionNote        string         `json:"decision_note"`
 	CreatedAt           time.Time      `json:"created_at"`
 	DecidedAt           *time.Time     `json:"decided_at"`
 	Steps               []ApprovalStep `gorm:"foreignKey:RequestID" json:"steps,omitempty"`
 	RequesterName       string         `gorm:"-" json:"requester_name"`
+	RequesterNIK        string         `gorm:"-" json:"requester_nik"`
+	RequesterPosition   string         `gorm:"-" json:"requester_position"`
+	CanDecide           bool           `gorm:"-" json:"can_decide"` // filled by GET /approvals/:id only
 }
 
 type ApprovalStep struct {
@@ -196,13 +200,49 @@ type ApprovalStep struct {
 	RequestID      uint       `gorm:"index" json:"request_id"`
 	Level          int        `json:"level"`
 	ApproverUserID uint       `gorm:"index" json:"approver_user_id"`
-	Kind           string     `json:"kind"`   // n+1 | assigned | fallback
-	Status         string     `json:"status"` // Pending | Waiting | Approved | Rejected
+	Kind           string     `json:"kind"`        // n+1 | assigned | fallback | direct_manager | position | hr | hr_superior
+	PositionID     *uint      `json:"position_id"` // snapshot: the jabatan this step was configured for (kind position)
+	Status         string     `json:"status"`      // Pending | Waiting | Approved | Rejected
 	ActedByUserID  *uint      `json:"acted_by_user_id"`
 	ActedAt        *time.Time `json:"acted_at"`
 	Note           string     `json:"note"`
 	ApproverName   string     `gorm:"-" json:"approver_name"`
 	ActedByName    string     `gorm:"-" json:"acted_by_name"`
+}
+
+// ApprovalFlow: a sequential approval route configured by HR for one request-type key (see approval.FlowKeys).
+// Requesters (positions) empty = applies to every requester; BusinessID nil = every business.
+type ApprovalFlow struct {
+	ID          uint                    `gorm:"primaryKey" json:"id"`
+	Name        string                  `json:"name"`
+	RequestType string                  `gorm:"index" json:"request_type"`
+	BusinessID  *uint                   `gorm:"index" json:"business_id"`
+	IsActive    bool                    `gorm:"default:true" json:"is_active"`
+	CreatedAt   time.Time               `json:"created_at"`
+	UpdatedAt   time.Time               `json:"updated_at"`
+	Steps       []ApprovalFlowStep      `gorm:"foreignKey:FlowID" json:"steps"`
+	Requesters  []ApprovalFlowRequester `gorm:"foreignKey:FlowID" json:"requesters"`
+}
+
+type ApprovalFlowRequester struct {
+	ID         uint `gorm:"primaryKey" json:"id"`
+	FlowID     uint `gorm:"uniqueIndex:idx_flow_req" json:"flow_id"`
+	PositionID uint `gorm:"uniqueIndex:idx_flow_req" json:"position_id"`
+}
+
+// ApprovalFlowStep kinds: direct_manager | position | hr | hr_superior.
+type ApprovalFlowStep struct {
+	ID                 uint   `gorm:"primaryKey" json:"id"`
+	FlowID             uint   `gorm:"index" json:"flow_id"`
+	Level              int    `json:"level"`
+	Kind               string `json:"kind"`
+	ApproverPositionID *uint  `json:"approver_position_id"`
+}
+
+// ApprovalFlowSeed remembers which request-type keys already received their default flow (so a default an admin
+// deleted is not recreated on the next start).
+type ApprovalFlowSeed struct {
+	Key string `gorm:"primaryKey"`
 }
 
 // ---- Leave (Phase 3) ----
@@ -276,7 +316,10 @@ type Holiday struct {
 	Date            time.Time `gorm:"index" json:"date"`
 	Name            string    `json:"name"`
 	BusinessID      *uint     `gorm:"index" json:"business_id"`
-	DeductsLeave    bool      `json:"deducts_leave"`
+	LocationID      *uint     `gorm:"index" json:"location_id"`               // Lokasi Kerja scope (implies the business); nil + nil business = nasional
+	Kind            string    `gorm:"default:semua" json:"kind"`              // semua | non_roster | roster (roster = annotation only)
+	Category        string    `gorm:"default:libur_nasional" json:"category"` // libur_nasional | cuti_bersama | libur_perusahaan
+	DeductsLeave    bool      `json:"deducts_leave"`                          // true <=> category cuti_bersama
 	CreatedByUserID uint      `json:"created_by_user_id"`
 	CreatedAt       time.Time `json:"created_at"`
 }
@@ -396,9 +439,36 @@ type RosterAdjustment struct {
 	EndDate    time.Time `json:"end_date"`
 	Kind       string    `json:"kind"` // kerja | off — what those days become
 	Reason     string    `json:"reason"`
+	Note       string    `json:"note"`                // optional extra remark from the requester
 	Status     string    `gorm:"index" json:"status"` // Pending Approval | Disetujui | Ditolak | Dibatalkan
 	ApprovalID *uint     `json:"approval_id"`
+	Compensate bool      `json:"compensate"` // the request carries compensation days (is_compensation rows)
 	CreatedAt  time.Time `json:"created_at"`
+	// Days: the per-day rows of the request (filled by the list endpoint; the rows are the source of truth,
+	// StartDate/EndDate are their min/max and Kind is "kerja"/"off" when uniform, else "campuran").
+	Days []RosterAdjustmentDay `gorm:"-" json:"days"`
+}
+
+// RosterAdjustmentDay: one date of a roster adjustment request and what it becomes (kerja | off).
+// IsCompensation marks the replacement days that keep the cycle total unchanged.
+type RosterAdjustmentDay struct {
+	ID                 uint   `gorm:"primaryKey" json:"id"`
+	RosterAdjustmentID uint   `gorm:"index;uniqueIndex:idx_radj_day" json:"roster_adjustment_id"`
+	EmployeeID         uint   `gorm:"index" json:"employee_id"`
+	Date               string `gorm:"size:10;index;uniqueIndex:idx_radj_day" json:"date"` // YYYY-MM-DD
+	Kind               string `json:"kind"`
+	IsCompensation     bool   `json:"is_compensation"`
+}
+
+// RosterAdjustmentAttachment: optional supporting document of a roster adjustment request.
+type RosterAdjustmentAttachment struct {
+	ID                 uint      `gorm:"primaryKey" json:"id"`
+	RosterAdjustmentID uint      `gorm:"index" json:"roster_adjustment_id"`
+	FileName           string    `json:"file_name"`
+	MimeType           string    `json:"mime_type"`
+	Size               int64     `json:"size"`
+	LocalPath          string    `json:"-"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 // Notification: in-app message for one user (bell in the header). RefKey makes generated reminders idempotent:

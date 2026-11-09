@@ -24,6 +24,7 @@ var Defs = []Def{
 	{Key: "org.manage", Label: "Kelola struktur organisasi", Group: "Organisasi", Hint: "Unit, jabatan, dan lokasi"},
 	{Key: "business.manage", Label: "Kelola bisnis", Group: "Organisasi"},
 	{Key: "leave.admin", Label: "Kelola saldo & jenis cuti", Group: "Kehadiran"},
+	{Key: "approval.admin", Label: "Kelola flow approval", Group: "Pengaturan", Hint: "Menyusun alur persetujuan berjenjang per jenis pengajuan dan jabatan"},
 	{Key: "kpi.settings", Label: "Atur bobot & ambang KPI", Group: "KPI"},
 	{Key: "kpi.period", Label: "Tutup / buka periode KPI", Group: "KPI"},
 	{Key: "users.manage", Label: "Kelola user & password", Group: "Pengaturan"},
@@ -71,7 +72,7 @@ type seeded struct {
 func (seeded) TableName() string { return "perm_seeded" }
 
 // addedLater lists keys introduced after the first release of the matrix (existing installs have not seeded them yet).
-var addedLater = map[string]bool{"drive.manage": true}
+var addedLater = map[string]bool{"drive.manage": true, "approval.admin": true}
 
 // Init migrates the tables, seeds defaults (once per permission) and loads the cache.
 func Init(db *gorm.DB) error {

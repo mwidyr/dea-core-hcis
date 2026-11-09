@@ -42,8 +42,64 @@ func employeeBizScope(c *gin.Context, q *gorm.DB) *gorm.DB {
 	return q
 }
 
+// hierarchyScope limits an employee query to the caller themself plus their whole downline (recursive).
+// No peers and no superiors. Group-level roles (super admin, HR admin) keep the full view.
+func hierarchyScope(c *gin.Context, q *gorm.DB) *gorm.DB {
+	if isGroupLevel(c) {
+		return q
+	}
+	me := myEmployeeID(c)
+	if me == nil {
+		return q.Where("1 = 0")
+	}
+	return q.Where("employees.id = ? OR employees.id IN "+downlineSQL, *me, *me)
+}
+
+// employeeVisible is the pure rule behind hierarchyScope: group-level sees everyone; everybody else sees
+// themself and anyone below them, never peers or superiors.
+func employeeVisible(group bool, me *uint, target uint, below func(me, target uint) bool) bool {
+	if group {
+		return true
+	}
+	if me == nil {
+		return false
+	}
+	return *me == target || below(*me, target)
+}
+
+// canSeeEmployee applies employeeVisible for the current request.
+func canSeeEmployee(c *gin.Context, target uint) bool {
+	return employeeVisible(isGroupLevel(c), myEmployeeID(c), target, inDownline)
+}
+
+// EmployeeOptions is a light picker list (id, name, nik, unit, business). ?scope=team keeps the caller's
+// own hierarchy (self + downline); the default is everyone active in the caller's businesses, which the
+// task form needs for giver / member / watcher pickers.
+func EmployeeOptions(c *gin.Context) {
+	q := database.DB.Model(&models.Employee{}).Where("employees.status = 'Aktif'")
+	if c.Query("scope") == "team" {
+		q = hierarchyScope(c, employeeBizScope(c, q))
+	} else {
+		q = employeeBizScope(c, q)
+	}
+	var l []models.Employee
+	q.Preload("Unit").Preload("Position").Order("employees.name").Limit(2000).Find(&l)
+	out := make([]gin.H, 0, len(l))
+	for _, e := range l {
+		row := gin.H{"id": e.ID, "name": e.Name, "nik": e.NIK, "business_id": e.BusinessID, "unit_id": e.UnitID, "manager_id": e.ManagerID}
+		if e.Unit != nil {
+			row["unit"] = gin.H{"id": e.Unit.ID, "name": e.Unit.Name}
+		}
+		if e.Position != nil {
+			row["position"] = gin.H{"id": e.Position.ID, "title": e.Position.Title}
+		}
+		out = append(out, row)
+	}
+	c.JSON(http.StatusOK, out)
+}
+
 func ListEmployees(c *gin.Context) {
-	q := employeeBizScope(c, database.DB.Model(&models.Employee{}))
+	q := hierarchyScope(c, employeeBizScope(c, database.DB.Model(&models.Employee{})))
 	if s := c.Query("q"); s != "" {
 		like := "%" + s + "%"
 		q = q.Where("employees.name ILIKE ? OR employees.email ILIKE ? OR employees.nik ILIKE ? OR employees.position_id IN (SELECT id FROM positions WHERE title ILIKE ?)", like, like, like, like)
@@ -60,7 +116,7 @@ func ListEmployees(c *gin.Context) {
 	var total int64
 	q.Count(&total)
 	// stats cover the whole business scope, independent of search/filter/page
-	base := employeeBizScope(c, database.DB.Model(&models.Employee{})).Where("employees.status = 'Aktif'")
+	base := hierarchyScope(c, employeeBizScope(c, database.DB.Model(&models.Employee{}))).Where("employees.status = 'Aktif'")
 	var active, tetap, kontrak, freelance, multi, expiring int64
 	base.Count(&active)
 	base.Session(&gorm.Session{}).Where("employees.employee_type = ?", "Tetap").Count(&tetap)
@@ -119,6 +175,10 @@ func employeeOrder(sort, dir string) string {
 
 func GetEmployee(c *gin.Context) {
 	var e models.Employee
+	if !canSeeEmployee(c, paramID(c)) { // only yourself and your downline; same answer as "missing" so ids can't be probed
+		c.JSON(http.StatusForbidden, gin.H{"error": "Anda tidak berwenang melihat karyawan ini"})
+		return
+	}
 	err := database.DB.Preload("Position").Preload("Unit").Preload("Location").Preload("Business").
 		Preload("Placements.Position").Preload("Placements.Business").First(&e, paramID(c)).Error
 	if err != nil {
@@ -127,7 +187,17 @@ func GetEmployee(c *gin.Context) {
 	}
 	fillDOH(&e)
 	fillRosters([]*models.Employee{&e})
-	c.JSON(http.StatusOK, e)
+	managerName := ""
+	if e.ManagerID != nil {
+		var m models.Employee
+		if database.DB.Select("id, name").Limit(1).Find(&m, *e.ManagerID).Error == nil {
+			managerName = m.Name
+		}
+	}
+	c.JSON(http.StatusOK, struct {
+		models.Employee
+		ManagerName string `json:"manager_name"`
+	}{e, managerName})
 }
 
 func SaveEmployee(c *gin.Context) {
@@ -155,7 +225,13 @@ func SaveEmployee(c *gin.Context) {
 		in.ContractStart, in.ContractEnd = old.ContractStart, old.ContractEnd // contract periods are managed under /contracts
 		in.BusinessID = old.BusinessID                                        // business is locked once created
 		oldNIK = old.NIK
+		if !isGroupLevel(c) { // the work calendar is a rule: only HR admin / super admin change it
+			in.WorkCalendarID = old.WorkCalendarID
+		}
 	} else {
+		if !isGroupLevel(c) {
+			in.WorkCalendarID = nil
+		}
 		in.Status, in.IsActive = "Aktif", true
 	}
 	in.NIK = strings.ToUpper(strings.TrimSpace(in.NIK))
@@ -298,6 +374,8 @@ func DeleteEmployee(c *gin.Context) {
 		tx.Exec("UPDATE tasks SET kpi_id = NULL WHERE kpi_id IN (SELECT id FROM employee_kpis WHERE employee_id = ?)", id)
 		tx.Where("employee_id = ?", id).Delete(&models.EmployeeKPI{})
 		tx.Exec(`UPDATE approval_requests SET status = 'Cancelled' WHERE request_type = 'roster' AND status = 'Pending' AND ref_id IN (SELECT id FROM roster_adjustments WHERE employee_id = ?)`, id)
+		tx.Exec("DELETE FROM roster_adjustment_attachments WHERE roster_adjustment_id IN (SELECT id FROM roster_adjustments WHERE employee_id = ?)", id)
+		tx.Exec("DELETE FROM roster_adjustment_days WHERE roster_adjustment_id IN (SELECT id FROM roster_adjustments WHERE employee_id = ?)", id)
 		tx.Where("employee_id = ?", id).Delete(&models.RosterAdjustment{})
 		tx.Exec(`UPDATE approval_requests SET status = 'Cancelled' WHERE request_type = 'attendance_manual' AND status = 'Pending' AND ref_id IN (SELECT id FROM manual_attendances WHERE employee_id = ?)`, id)
 		tx.Where("employee_id = ?", id).Delete(&models.ManualAttendance{})
@@ -334,7 +412,7 @@ func DeleteEmployee(c *gin.Context) {
 func ContractExpiring(c *gin.Context) {
 	days, _ := strconv.Atoi(c.DefaultQuery("days", "30"))
 	l := []models.Employee{}
-	scopeBusiness(c, database.DB, "business_id").Preload("Position").
+	hierarchyScope(c, scopeBusiness(c, database.DB.Model(&models.Employee{}), "employees.business_id")).Preload("Position").
 		Where("contract_end IS NOT NULL AND contract_end <= ? AND status = 'Aktif'", time.Now().AddDate(0, 0, days)).
 		Order("contract_end").Find(&l)
 	c.JSON(http.StatusOK, l)

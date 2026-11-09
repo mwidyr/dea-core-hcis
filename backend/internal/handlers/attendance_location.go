@@ -24,7 +24,7 @@ func submitLocationApproval(tx *gorm.DB, rec *models.AttendanceRecord, kind stri
 	if strings.TrimSpace(r.Reason) != "" {
 		summary += " · alasan: " + strings.TrimSpace(r.Reason)
 	}
-	req, err := approval.Submit(tx, approval.SubmitInput{Type: "attendance_location", RefID: rec.ID, BusinessID: rec.BusinessID, RequesterEmployeeID: &r.Emp.ID, RequesterUserID: u.ID,
+	req, err := approval.Submit(tx, approval.SubmitInput{Type: "attendance_location", RefID: rec.ID, BusinessID: rec.BusinessID, RequesterEmployeeID: &r.Emp.ID, RequesterUserID: u.ID, FlowKey: "attendance_location",
 		Title: "Absen di Luar Lokasi — " + r.Emp.Name, Summary: summary})
 	if err != nil {
 		return err

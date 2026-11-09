@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"github.com/dea-core/hcis/backend/internal/approval"
 	"log"
 	"strings"
 
@@ -30,6 +31,7 @@ func Connect(cfg *config.Config) {
 	Seed(db)
 	seedLeaveTypes(db)
 	SeedWorkDefaults(db)
+	approval.EnsureDefaultFlows(db)
 	BackfillContracts(db) // after Seed: freshly seeded Kontrak employees get their contract row too
 	var ks int64
 	if db.Model(&models.KPISettings{}).Count(&ks); ks == 0 {
@@ -65,6 +67,10 @@ func migrate(db *gorm.DB) {
 		&models.AuditLog{},
 		&models.ApprovalRequest{},
 		&models.ApprovalStep{},
+		&models.ApprovalFlow{},
+		&models.ApprovalFlowRequester{},
+		&models.ApprovalFlowStep{},
+		&models.ApprovalFlowSeed{},
 		&models.LeaveType{},
 		&models.LeaveBalance{},
 		&models.LeaveRequest{},
@@ -75,6 +81,8 @@ func migrate(db *gorm.DB) {
 		&models.Roster{},
 		&models.RosterAssignment{},
 		&models.RosterAdjustment{},
+		&models.RosterAdjustmentAttachment{},
+		&models.RosterAdjustmentDay{},
 		&models.Notification{},
 		&models.Project{},
 		&models.ProjectDocument{},
@@ -103,6 +111,14 @@ func migrate(db *gorm.DB) {
 	if freshAttachmentFlag {
 		db.Exec("UPDATE leave_types SET requires_attachment = true WHERE category = 'sakit'")
 	}
+	// legacy range adjustments get one day row per date (idempotent: only requests without rows; capped at 366 days)
+	db.Exec(`INSERT INTO roster_adjustment_days (roster_adjustment_id, employee_id, date, kind, is_compensation)
+		SELECT a.id, a.employee_id, to_char(g::date, 'YYYY-MM-DD'), CASE WHEN a.kind = 'kerja' THEN 'kerja' ELSE 'off' END, false
+		FROM roster_adjustments a, LATERAL generate_series(a.start_date::date, LEAST(a.end_date::date, a.start_date::date + 365), interval '1 day') g
+		WHERE NOT EXISTS (SELECT 1 FROM roster_adjustment_days d WHERE d.roster_adjustment_id = a.id)`)
+	// holiday scope/kind/category backfill (idempotent)
+	db.Exec("UPDATE holidays SET kind = 'semua' WHERE kind IS NULL OR kind = ''")
+	db.Exec("UPDATE holidays SET category = CASE WHEN deducts_leave THEN 'cuti_bersama' ELSE 'libur_nasional' END WHERE category IS NULL OR category = ''")
 	// position level classes were renamed (idempotent)
 	db.Exec("UPDATE positions SET level_class = 'Coordinator / Team Lead' WHERE level_class = 'Coordinator / Team Leader'")
 	db.Exec("UPDATE positions SET level_class = 'Non Staff' WHERE level_class = 'Non-Staff / Operator'")

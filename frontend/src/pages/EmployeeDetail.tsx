@@ -38,6 +38,7 @@ export default function EmployeeDetail() {
   const nav = useNavigate()
   const { businessId, businesses } = useBusinessStore()
   const canEdit = useAuthStore((s) => s.can)('employees.manage')
+  const isGroup = useAuthStore((s) => ['super_admin', 'hr_admin'].includes(s.user?.role ?? '')) // work calendar is a rule: HR admin / super admin only
 
   const [tab, setTab] = useState<TabId>('personal')
   const [emp, setEmp] = useState<Employee | null>(null)
@@ -156,7 +157,7 @@ export default function EmployeeDetail() {
                   </select>
                 </L>
                 <L label="Kalender Kerja">
-                  <select className="input w-full" disabled={!form.business_id} value={form.work_calendar_id ?? ''} onChange={(e) => set('work_calendar_id', e.target.value ? Number(e.target.value) : null)}>
+                  <select className="input w-full" disabled={!form.business_id || !isGroup} title={isGroup ? undefined : 'Hanya Super Admin atau HR Admin yang dapat mengubah kalender kerja'} value={form.work_calendar_id ?? ''} onChange={(e) => set('work_calendar_id', e.target.value ? Number(e.target.value) : null)}>
                     <option value="">— Default bisnis —</option>{calendars.map((c) => <option key={c.id} value={c.id}>{c.name}{c.is_default ? ' (default)' : ''}</option>)}
                   </select>
                 </L>
