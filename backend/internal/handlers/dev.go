@@ -34,7 +34,7 @@ func DevAccounts(c *gin.Context) {
 	for _, e := range es {
 		emps[e.ID] = e
 	}
-	rank := map[string]int{"super_admin": 0, "hr_admin": 1, "manager": 2, "employee": 3}
+	rank := map[string]int{"super_admin": 0, "hr_admin": 1, "komisaris": 2, "manager": 3, "leader": 4, "employee": 5}
 	out := make([]devAccount, 0, len(us))
 	for _, u := range us {
 		a := devAccount{ID: u.ID, Name: u.Name, Email: u.Email, Role: u.Role}

@@ -45,7 +45,7 @@ func employeeBizScope(c *gin.Context, q *gorm.DB) *gorm.DB {
 // hierarchyScope limits an employee query to the caller themself plus their whole downline (recursive).
 // No peers and no superiors. Group-level roles (super admin, HR admin) keep the full view.
 func hierarchyScope(c *gin.Context, q *gorm.DB) *gorm.DB {
-	if isGroupLevel(c) {
+	if seesAll(c) {
 		return q
 	}
 	me := myEmployeeID(c)
@@ -69,7 +69,7 @@ func employeeVisible(group bool, me *uint, target uint, below func(me, target ui
 
 // canSeeEmployee applies employeeVisible for the current request.
 func canSeeEmployee(c *gin.Context, target uint) bool {
-	return employeeVisible(isGroupLevel(c), myEmployeeID(c), target, inDownline)
+	return employeeVisible(seesAll(c), myEmployeeID(c), target, inDownline)
 }
 
 // EmployeeOptions is a light picker list (id, name, nik, unit, business). ?scope=team keeps the caller's

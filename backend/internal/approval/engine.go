@@ -9,6 +9,7 @@ package approval
 
 import (
 	"errors"
+	"github.com/dea-core/hcis/backend/internal/perm"
 	"time"
 
 	"github.com/dea-core/hcis/backend/internal/models"
@@ -66,7 +67,7 @@ var (
 )
 
 // approverRoles may be picked as an assigned approver (same list the request forms offer).
-var approverRoles = map[string]bool{"manager": true, "hr_admin": true, "super_admin": true}
+var approverRoles = map[string]bool{"manager": true, "leader": true, "hr_admin": true, "super_admin": true}
 
 // MayDecide is the single rule for "can this user decide the current step?".
 // The step's approver may; a super admin may act on any step; but the requester never may,
@@ -76,6 +77,9 @@ func MayDecide(stepApprover, actor uint, actorRole string, requesterUser uint, r
 		return ErrSelfApproval
 	}
 	if stepApprover != actor && actorRole != "super_admin" {
+		return ErrNotAllowed
+	}
+	if !perm.Allowed(actorRole, "approval.decide") {
 		return ErrNotAllowed
 	}
 	return nil
@@ -106,6 +110,15 @@ func employeeOfUser(tx *gorm.DB, userID uint) *uint {
 // IsRequester tells whether userID is the person the request was filed by / for.
 func IsRequester(tx *gorm.DB, req *models.ApprovalRequest, userID uint) bool {
 	return MayDecide(0, userID, "super_admin", req.RequesterUserID, req.RequesterEmployeeID, employeeOfUser(tx, userID)) == ErrSelfApproval
+}
+
+// approverOfEmployee is userOfEmployee for approver lookups: accounts whose role may not decide approvals are skipped.
+func approverOfEmployee(tx *gorm.DB, empID uint) uint {
+	var u models.User
+	if tx.Where("employee_id = ? AND is_active = true AND role NOT IN ?", empID, perm.CannotDecide()).Limit(1).Find(&u).Error == nil {
+		return u.ID
+	}
+	return 0
 }
 
 func userOfEmployee(tx *gorm.DB, empID uint) uint {
@@ -142,7 +155,7 @@ func (l dbLookup) DirectManager() uint {
 			return 0
 		}
 		cur = e.ManagerID
-		if uid := userOfEmployee(l.tx, *cur); uid != 0 {
+		if uid := approverOfEmployee(l.tx, *cur); uid != 0 {
 			return uid
 		}
 	}
@@ -160,7 +173,7 @@ func (l dbLookup) PositionHolder(posID uint, avoid map[uint]bool) uint {
 		if l.in.RequesterEmployeeID != nil && id == *l.in.RequesterEmployeeID {
 			continue
 		}
-		if uid := userOfEmployee(l.tx, id); uid != 0 && !avoid[uid] {
+		if uid := approverOfEmployee(l.tx, id); uid != 0 && !avoid[uid] {
 			return uid
 		}
 	}
@@ -179,7 +192,7 @@ func (l dbLookup) HRSuperior() uint {
 	if hr := l.hrUser(); hr.ID != 0 && hr.EmployeeID != nil {
 		var e models.Employee
 		if l.tx.Select("id, manager_id").Limit(1).Find(&e, *hr.EmployeeID).Error == nil && e.ManagerID != nil {
-			if uid := userOfEmployee(l.tx, *e.ManagerID); uid != 0 {
+			if uid := approverOfEmployee(l.tx, *e.ManagerID); uid != 0 {
 				return uid
 			}
 		}

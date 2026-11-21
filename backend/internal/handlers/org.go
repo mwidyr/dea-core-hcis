@@ -56,7 +56,8 @@ func ListPositions(c *gin.Context) {
 	}
 	holders := map[uint]string{}
 	var emps []models.Employee
-	database.DB.Select("id,name,position_id").Where("position_id IS NOT NULL").Find(&emps)
+	// people who left (status not Aktif) or whose contract has ended no longer fill a position in the chart
+	database.DB.Select("id,name,position_id").Where("position_id IS NOT NULL AND status = 'Aktif' AND (contract_end IS NULL OR contract_end >= CURRENT_DATE)").Find(&emps)
 	for _, e := range emps {
 		holders[*e.PositionID] = e.Name
 	}
@@ -66,13 +67,13 @@ func ListPositions(c *gin.Context) {
 		Name       string
 	}
 	var pls []pl
-	database.DB.Raw("SELECT p.position_id, e.name FROM employee_placements p JOIN employees e ON e.id = p.employee_id").Scan(&pls)
+	database.DB.Raw("SELECT p.position_id, e.name FROM employee_placements p JOIN employees e ON e.id = p.employee_id WHERE e.status = 'Aktif' AND (e.contract_end IS NULL OR e.contract_end >= CURRENT_DATE)").Scan(&pls)
 	for _, x := range pls {
 		holders[x.PositionID] = x.Name
 	}
 	// non group-level callers only learn the holder when that person is themself or in their downline
 	var visible map[string]bool
-	if !isGroupLevel(c) {
+	if !seesAll(c) {
 		visible = map[string]bool{}
 		var names []string
 		hierarchyScope(c, database.DB.Model(&models.Employee{})).Pluck("employees.name", &names)

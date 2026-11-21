@@ -313,7 +313,7 @@ type attRow struct {
 }
 
 func attendanceEmployees(c *gin.Context) []models.Employee {
-	q := employeeScope(c, database.DB.Model(&models.Employee{}))
+	q := employeeScope(c, database.DB.Model(&models.Employee{})).Where(noAttendanceSQL)
 	if s := c.Query("q"); s != "" {
 		q = q.Where("employees.name ILIKE ? OR employees.nik ILIKE ?", "%"+s+"%", "%"+s+"%")
 	}

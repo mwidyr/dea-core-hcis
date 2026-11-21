@@ -18,6 +18,9 @@ type Def struct {
 }
 
 var Defs = []Def{
+	{Key: "tasks.assign", Label: "Memberi tugas ke bawahan", Group: "Pekerjaan", Hint: "Role atasan (Manager, Leader, Komisaris): tanpa izin ini hanya bisa membuat tugas untuk diri sendiri. Komisaris hanya dapat menugaskan Direktur"},
+	{Key: "kpi.assign", Label: "Menetapkan KPI bawahan", Group: "KPI", Hint: "Komisaris hanya dapat menetapkan KPI Direktur"},
+	{Key: "approval.decide", Label: "Menyetujui / menolak approval", Group: "Pengaturan", Hint: "Tanpa izin ini role tidak menerima dan tidak bisa memutuskan pengajuan (mis. Komisaris)"},
 	{Key: "reports.view", Label: "Melihat laporan", Group: "Laporan", Hint: "Membuka halaman Laporan; data tetap dibatasi sesuai cakupan peran (tim sendiri / bisnis yang diizinkan)"},
 	{Key: "reports.export", Label: "Ekspor laporan (Excel/PDF)", Group: "Laporan"},
 	{Key: "employees.manage", Label: "Kelola karyawan", Group: "Organisasi", Hint: "Tambah/ubah/hapus karyawan, penempatan, dan dokumen"},
@@ -33,7 +36,28 @@ var Defs = []Def{
 	{Key: "roles.manage", Label: "Kelola role & izin", Group: "Pengaturan", Locked: true},
 }
 
-var Roles = []string{"super_admin", "hr_admin", "manager", "employee"}
+var Roles = []string{"super_admin", "hr_admin", "manager", "leader", "komisaris", "employee"}
+
+// Gated roles are the superior roles whose extra powers (assign tasks / KPI, decide approvals) the matrix switches on or off.
+// Other roles keep the built-in rules (HR / super admin: everything; employee: the hierarchy rules only).
+var Gated = map[string]bool{"manager": true, "leader": true, "komisaris": true}
+
+// Allowed: a gated role needs the permission; every other role is not restricted by it.
+func Allowed(role, key string) bool { return !Gated[role] || Has(role, key) }
+
+// CannotDecide lists the gated roles that may not decide approvals (they are skipped when a flow looks for an approver).
+func CannotDecide() []string {
+	out := []string{}
+	for r := range Gated {
+		if !Has(r, "approval.decide") {
+			out = append(out, r)
+		}
+	}
+	if len(out) == 0 {
+		out = append(out, "-")
+	}
+	return out
+}
 
 // defaults replicate the behaviour before the editor existed.
 func defaults(role string) map[string]bool {
@@ -44,8 +68,10 @@ func defaults(role string) map[string]bool {
 			m[d.Key] = true
 		case "hr_admin":
 			m[d.Key] = !d.Locked
-		case "manager":
-			m[d.Key] = d.Key == "reports.view" || d.Key == "reports.export"
+		case "manager", "leader":
+			m[d.Key] = d.Key == "reports.view" || d.Key == "reports.export" || d.Key == "tasks.assign" || d.Key == "kpi.assign" || d.Key == "approval.decide"
+		case "komisaris": // sees everything, assigns only the Direktur, never approves
+			m[d.Key] = d.Key == "reports.view" || d.Key == "reports.export" || d.Key == "tasks.assign" || d.Key == "kpi.assign"
 		}
 	}
 	return m
@@ -72,7 +98,7 @@ type seeded struct {
 func (seeded) TableName() string { return "perm_seeded" }
 
 // addedLater lists keys introduced after the first release of the matrix (existing installs have not seeded them yet).
-var addedLater = map[string]bool{"drive.manage": true, "approval.admin": true}
+var addedLater = map[string]bool{"drive.manage": true, "approval.admin": true, "tasks.assign": true, "kpi.assign": true, "approval.decide": true}
 
 // Init migrates the tables, seeds defaults (once per permission) and loads the cache.
 func Init(db *gorm.DB) error {
@@ -195,4 +221,15 @@ func Reset(db *gorm.DB, role string) error {
 		}
 	}
 	return Set(db, role, keys)
+}
+
+// UseDefaults fills the cache from the built-in defaults without a database (tests, or before Init has run).
+func UseDefaults() {
+	m := map[string]map[string]bool{}
+	for _, r := range Roles {
+		m[r] = defaults(r)
+	}
+	mu.Lock()
+	cache = m
+	mu.Unlock()
 }

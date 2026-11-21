@@ -1,6 +1,7 @@
 package approval
 
 import (
+	"github.com/dea-core/hcis/backend/internal/perm"
 	"testing"
 
 	"github.com/dea-core/hcis/backend/internal/models"
@@ -60,3 +61,5 @@ func TestCanDecideNow(t *testing.T) {
 		}
 	}
 }
+
+func init() { perm.UseDefaults() }

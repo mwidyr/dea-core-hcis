@@ -121,7 +121,7 @@ func snapshotDeptViews(key string, c *gin.Context) []deptView {
 func closeKPIPeriod(per kpiPeriod, userID *uint) (*models.KPIPeriodClose, error) {
 	st := getKPISettings()
 	var emps []models.Employee
-	database.DB.Preload("Unit").Preload("Business").Where("status = 'Aktif'").Find(&emps)
+	database.DB.Preload("Unit").Preload("Business").Preload("Position").Where("status = 'Aktif'").Find(&emps)
 	scores := computeScores(emps, per, st)
 	var ds []models.DeptKPI
 	database.DB.Where("period_key = ?", per.Key).Order("id").Find(&ds)

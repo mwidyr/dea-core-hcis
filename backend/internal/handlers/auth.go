@@ -80,7 +80,13 @@ func ChangePassword(c *gin.Context) {
 }
 
 func userView(u *models.User) gin.H {
-	return gin.H{"id": u.ID, "email": u.Email, "name": u.Name, "role": u.Role, "employee_id": u.EmployeeID, "businesses": u.Businesses, "permissions": perm.For(u.Role)}
+	noAtt := false // Direksi / Komisaris do not do attendance
+	if u.EmployeeID != nil {
+		var lc string
+		database.DB.Raw("SELECT p.level_class FROM employees e JOIN positions p ON p.id = e.position_id WHERE e.id = ?", *u.EmployeeID).Scan(&lc)
+		noAtt = noAttendanceClass(lc)
+	}
+	return gin.H{"id": u.ID, "email": u.Email, "name": u.Name, "role": u.Role, "employee_id": u.EmployeeID, "businesses": u.Businesses, "permissions": perm.For(u.Role), "no_attendance": noAtt, "avatar": u.AvatarAt, "has_avatar": u.AvatarPath != ""}
 }
 
 // Businesses returns the businesses the caller may switch to.

@@ -32,7 +32,7 @@ func canViewProject(c *gin.Context, p models.Project) bool {
 			return false
 		}
 	}
-	if projectManageable(c, p) {
+	if projectManageable(c, p) || role(c) == "komisaris" {
 		return true
 	}
 	me := myEmployeeID(c)
@@ -115,7 +115,7 @@ func decorateProjects(c *gin.Context, ps []models.Project) []projectView {
 
 func ListProjects(c *gin.Context) {
 	q := scopeBusiness(c, database.DB.Model(&models.Project{}), "projects.business_id")
-	if !isGroupLevel(c) {
+	if !seesAll(c) {
 		me := myEmployeeID(c)
 		if me == nil {
 			q = q.Where("1 = 0")

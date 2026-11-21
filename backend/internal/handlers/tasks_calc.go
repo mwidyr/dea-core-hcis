@@ -87,6 +87,25 @@ func (c *taskCalc) status(id uint) string {
 }
 
 // counts = direct children and how many of them are done.
+// span: earliest start and latest due among every leaf below a parent (sub tasks at any depth).
+func (c *taskCalc) span(id uint) (start, due *time.Time) {
+	for _, k := range c.kids[id] {
+		var s, d *time.Time
+		if len(c.kids[k]) > 0 {
+			s, d = c.span(k)
+		} else {
+			s, d = c.tasks[k].StartDate, c.tasks[k].DueDate
+		}
+		if s != nil && (start == nil || s.Before(*start)) {
+			start = s
+		}
+		if d != nil && (due == nil || d.After(*due)) {
+			due = d
+		}
+	}
+	return
+}
+
 func (c *taskCalc) counts(id uint) (total, done int) {
 	for _, k := range c.kids[id] {
 		total++

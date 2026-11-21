@@ -138,7 +138,7 @@ func GenerateRecurringTasks() int {
 			due := d.AddDate(0, 0, r.DueAfterDays)
 			occ, start := d, d
 			t := models.Task{BusinessID: r.BusinessID, Title: r.Title, Description: r.Description, Priority: r.Priority, AssignerID: r.AssignerID, PICID: r.PICID,
-				UnitID: r.UnitID, Status: "todo", StartDate: &start, DueDate: &due, RequireResult: r.RequireResult, RequiresApproval: r.RequiresApproval,
+				UnitID: r.UnitID, Status: "todo", StartDate: &start, DueDate: &due, PlanStartTime: r.PlanStartTime, PlanEndTime: r.PlanEndTime, RequireResult: r.RequireResult, RequiresApproval: r.RequiresApproval,
 				ApprovalLevels: r.ApprovalLevels, ApproverUserID: r.ApproverUserID, CreatedByUserID: r.CreatedByUserID, RecurringID: &r.ID, OccurrenceDate: &occ,
 				KPIID: linkRecurringKPI(r, due)}
 			res := database.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&t)
@@ -178,6 +178,8 @@ type recurringInput struct {
 	Weekday          int    `json:"weekday"`
 	DayOfMonth       int    `json:"day_of_month"`
 	DueAfterDays     int    `json:"due_after_days"`
+	PlanStartTime    string `json:"plan_start_time"`
+	PlanEndTime      string `json:"plan_end_time"`
 	StartDate        string `json:"start_date"`
 	EndDate          string `json:"end_date"`
 	KPITitle         string `json:"kpi_title"`
@@ -289,6 +291,14 @@ func fillRecurring(c *gin.Context, in recurringInput, r *models.RecurringTask, i
 		return "tanggal mulai tidak boleh di masa lalu"
 	}
 	r.StartDate = start
+	for _, v := range []string{in.PlanStartTime, in.PlanEndTime} {
+		if v != "" {
+			if _, err := time.Parse("15:04", v); err != nil {
+				return "jam rencana harus berformat HH:MM"
+			}
+		}
+	}
+	r.PlanStartTime, r.PlanEndTime = in.PlanStartTime, in.PlanEndTime
 	end, ok2 := parseOptDate(in.EndDate)
 	if !ok2 {
 		return "format tanggal berakhir tidak valid"

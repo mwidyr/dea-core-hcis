@@ -157,6 +157,10 @@ func tapAs(c *gin.Context, u models.User, action string, lat, lng, acc *float64,
 		c.JSON(http.StatusForbidden, gin.H{"error": "Karyawan tidak aktif, tidak dapat absen."})
 		return
 	}
+	if emp.Position != nil && noAttendanceClass(emp.Position.LevelClass) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Direksi dan Komisaris tidak melakukan absensi."})
+		return
+	}
 	img, terr := decodePhoto(photo) // only after the credentials / status checks: unauthenticated callers never make us decode images
 	if terr != nil {
 		c.JSON(terr.Status, gin.H{"error": terr.Msg, "name": emp.Name})

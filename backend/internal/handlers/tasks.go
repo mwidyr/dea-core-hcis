@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"fmt"
+	"github.com/dea-core/hcis/backend/internal/perm"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +33,8 @@ func rolesOn(c *gin.Context, t models.Task) taskRoles {
 	me := myEmployeeID(c)
 	if isGroupLevel(c) || t.CreatedByUserID == uid(c) {
 		r.Manager, r.Involved = true, true
+	} else if role(c) == "komisaris" { // sees every task, but edits nothing
+		r.Involved = true
 	}
 	if me == nil {
 		return r
@@ -126,6 +130,7 @@ type taskView struct {
 	Members         []memberView                `json:"members"`
 	AttachmentCount int                         `json:"attachment_count"`
 	CommentCount    int                         `json:"comment_count"`
+	PICAvatar       int64                       `json:"pic_avatar"` // 0 = no photo, else version for cache-busting
 	WaitingFor      string                      `json:"waiting_for"`
 	KPITitle        string                      `json:"kpi_title"`
 	CanManage       bool                        `json:"can_manage"`
@@ -232,6 +237,11 @@ func decorateTasks(c *gin.Context, ts []models.Task, calcs map[uint]*taskCalc) [
 		}
 	}
 	now := today()
+	picIDs := make([]uint, 0, len(ts))
+	for _, t := range ts {
+		picIDs = append(picIDs, t.PICID)
+	}
+	avatars := avatarFlags(picIDs)
 	out := make([]taskView, 0, len(ts))
 	for _, t := range ts {
 		cc := calcs[t.BusinessID]
@@ -240,6 +250,7 @@ func decorateTasks(c *gin.Context, ts []models.Task, calcs map[uint]*taskCalc) [
 		if v.Members == nil {
 			v.Members = []memberView{}
 		}
+		v.PICAvatar = avatars[t.PICID]
 		if t.AssignerID != nil {
 			v.AssignerName = empName[*t.AssignerID]
 		}
@@ -273,7 +284,13 @@ func decorateTasks(c *gin.Context, ts []models.Task, calcs map[uint]*taskCalc) [
 		if t.DueDate != nil && day(*t.DueDate).Before(now) && v.Status != "done" {
 			v.Overdue = true
 		}
-		v.Timeliness = taskTimeliness(v.Status, t.StartDate, t.DueDate, t.CompletedAt, now)
+		if cc != nil && cc.isParent(t.ID) { // a parent starts with its earliest sub task and ends with its latest
+			if s, d := cc.span(t.ID); s != nil || d != nil {
+				v.StartDate, v.DueDate = s, d
+			}
+		}
+		v.Overdue = v.DueDate != nil && day(*v.DueDate).Before(now) && v.Status != "done"
+		v.Timeliness = taskTimeliness(v.Status, v.StartDate, v.DueDate, t.CompletedAt, now)
 		v.TimelinessLabel = timelinessLabel[v.Timeliness]
 		r := rolesOn(c, t)
 		v.CanManage, v.CanWork, v.IsPIC = r.Manager, r.Manager || r.PIC, r.PIC
@@ -300,7 +317,7 @@ func taskScope(c *gin.Context, scope string) *gorm.DB {
 	q := scopeBusiness(c, database.DB.Model(&models.Task{}), "tasks.business_id")
 	me := myEmployeeID(c)
 	if me == nil {
-		if scope == "all" && isGroupLevel(c) {
+		if scope == "all" && seesAll(c) {
 			return q
 		}
 		return q.Where("1 = 0")
@@ -325,7 +342,7 @@ func taskScope(c *gin.Context, scope string) *gorm.DB {
 	case "team":
 		return q.Where("tasks.pic_id IN "+downlineSQL, m)
 	}
-	if isGroupLevel(c) {
+	if seesAll(c) {
 		return q
 	}
 	return q.Where("tasks.pic_id = ? OR tasks.assigner_id = ? OR "+member("")+" OR tasks.pic_id IN "+downlineSQL+" OR tasks.project_id IN (SELECT id FROM projects WHERE owner_id = ?)", m, m, m, m, m)
@@ -477,6 +494,10 @@ func TaskGivers(c *gin.Context) {
 	if me != nil {
 		q = q.Where("employees.id NOT IN "+downlineSQL, *me)
 	}
+	// a subordinate never gives the instruction to their superior: leave out the PIC's own downline
+	if pic, _ := strconv.Atoi(c.Query("pic_id")); pic > 0 {
+		q = q.Where("employees.id NOT IN "+downlineSQL, pic)
+	}
 	var emps []models.Employee
 	q.Preload("Unit").Order("employees.name").Limit(2000).Find(&emps)
 	c.JSON(http.StatusOK, personRows(emps, func(id uint) string {
@@ -496,7 +517,19 @@ func canAssignPIC(c *gin.Context, pic uint) bool {
 		return true
 	}
 	me := myEmployeeID(c)
-	return me != nil && (*me == pic || inDownline(*me, pic) || inUpline(*me, pic))
+	if me == nil {
+		return false
+	}
+	if role(c) == "komisaris" { // a Komisaris only assigns the Direktur (or themselves)
+		return perm.Allowed("komisaris", "tasks.assign") && (*me == pic || isDirekturEmployee(pic))
+	}
+	if *me == pic {
+		return true
+	}
+	if !perm.Allowed(role(c), "tasks.assign") { // no assign permission: own tasks only
+		return false
+	}
+	return inDownline(*me, pic) || inUpline(*me, pic)
 }
 
 // ---- get ----
@@ -564,6 +597,8 @@ type taskInput struct {
 	ParentID         *uint    `json:"parent_id"`
 	StartDate        string   `json:"start_date"`
 	DueDate          string   `json:"due_date"`
+	PlanStartTime    string   `json:"plan_start_time"`
+	PlanEndTime      string   `json:"plan_end_time"`
 	Weight           *float64 `json:"weight"`
 	RequireResult    *bool    `json:"require_result"`
 	RequiresApproval *bool    `json:"requires_approval"`
@@ -611,6 +646,18 @@ func fillTask(c *gin.Context, in taskInput, t *models.Task, calc *taskCalc, full
 			return "deadline tidak boleh sebelum tanggal mulai"
 		}
 		t.StartDate, t.DueDate = start, due
+		ps, pe := strings.TrimSpace(in.PlanStartTime), strings.TrimSpace(in.PlanEndTime)
+		for _, v := range []string{ps, pe} {
+			if v != "" {
+				if _, err := time.Parse("15:04", v); err != nil {
+					return "jam rencana harus berformat HH:MM"
+				}
+			}
+		}
+		if ps != "" && pe != "" && start != nil && due != nil && start.Equal(*due) && pe <= ps {
+			return "jam selesai rencana harus setelah jam mulai pada hari yang sama"
+		}
+		t.PlanStartTime, t.PlanEndTime = ps, pe
 		if in.RequireResult != nil {
 			t.RequireResult = *in.RequireResult
 		}
@@ -730,6 +777,10 @@ func resolveStructure(c *gin.Context, in taskInput, t *models.Task, calc *taskCa
 		// anyone may be named, except people below the person who is entering the task
 		if me := myEmployeeID(c); me != nil && *t.AssignerID != *me && inDownline(*me, *t.AssignerID) && (isNew || old.AssignerID == nil || *old.AssignerID != *t.AssignerID) {
 			return "pemberi tugas tidak boleh bawahan Anda; pilih diri Anda, atasan, atau rekan lain"
+		}
+		// a subordinate never gives the instruction to their own superior
+		if *t.AssignerID != in.PICID && inDownline(in.PICID, *t.AssignerID) && (isNew || old.AssignerID == nil || *old.AssignerID != *t.AssignerID || old.PICID != in.PICID) {
+			return "pemberi tugas tidak boleh bawahan dari PIC; pilih atasan PIC, rekan setara, atau PIC sendiri"
 		}
 	}
 	return ""
@@ -1011,6 +1062,7 @@ func CompleteTask(c *gin.Context) {
 	database.DB.Select("id, name").Limit(1).Find(&pic, t.PICID)
 	err := database.DB.Transaction(func(tx *gorm.DB) error {
 		addTaskComment(tx, t.ID, uid(c), in.Note)
+		closeOpenSessions(tx, t.ID, 0)
 		prev := t.Status
 		if t.ActualStart == nil {
 			now := time.Now()

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/dea-core/hcis/backend/internal/perm"
 	"net/http"
 
 	"github.com/dea-core/hcis/backend/internal/approval"
@@ -71,6 +72,9 @@ func decorate(reqs []models.ApprovalRequest) {
 
 func pendingForMe(c *gin.Context) *gorm.DB {
 	q := database.DB.Model(&models.ApprovalRequest{}).Where("status = ?", approval.Pending)
+	if !perm.Allowed(role(c), "approval.decide") {
+		return q.Where("1 = 0")
+	}
 	if role(c) == "super_admin" { // super admin can act on everything except what they filed themselves
 		q = q.Where("requester_user_id <> ?", uid(c))
 		if me := myEmployeeID(c); me != nil {
@@ -93,7 +97,7 @@ func ApprovalInbox(c *gin.Context) {
 
 func ApprovalCount(c *gin.Context) {
 	var n int64
-	pendingForMe(c).Count(&n)
+	scopeBusiness(c, pendingForMe(c), "approval_requests.business_id").Count(&n)
 	c.JSON(http.StatusOK, gin.H{"inbox": n})
 }
 
@@ -108,7 +112,7 @@ func ApprovalHistory(c *gin.Context) {
 	if v := c.Query("type"); v != "" {
 		q = q.Where("approval_requests.request_type = ?", v)
 	}
-	if !isGroupLevel(c) {
+	if !seesAll(c) {
 		me := myEmployeeID(c)
 		cond := `approval_requests.requester_user_id = ? OR EXISTS (SELECT 1 FROM approval_steps s WHERE s.request_id = approval_requests.id AND (s.acted_by_user_id = ? OR s.approver_user_id = ?))`
 		args := []any{uid(c), uid(c), uid(c)}
@@ -127,7 +131,7 @@ func ApprovalHistory(c *gin.Context) {
 // MyApprovalRequests: what I submitted, with the approval chain and progress.
 func MyApprovalRequests(c *gin.Context) {
 	l := []models.ApprovalRequest{}
-	database.DB.Where("requester_user_id = ?", uid(c)).Preload("Steps", func(db *gorm.DB) *gorm.DB { return db.Order("level") }).Order("created_at DESC").Limit(1000).Find(&l)
+	scopeBusiness(c, database.DB.Where("requester_user_id = ?", uid(c)), "approval_requests.business_id").Preload("Steps", func(db *gorm.DB) *gorm.DB { return db.Order("level") }).Order("created_at DESC").Limit(1000).Find(&l)
 	decorate(l)
 	c.JSON(http.StatusOK, l)
 }
@@ -234,7 +238,7 @@ func Approvers(c *gin.Context) {
 	}
 	cands := []person{}
 	var us []models.User
-	database.DB.Where(`is_active = true AND role IN ('manager','hr_admin','super_admin') AND id <> ?
+	database.DB.Where(`is_active = true AND role IN ('manager','leader','hr_admin','super_admin') AND id <> ?
 		AND (role IN ('hr_admin','super_admin') OR id IN (SELECT user_id FROM user_businesses WHERE business_id = ?))`, ru.ID, emp.BusinessID).Order("name").Find(&us)
 	for _, u := range us {
 		cands = append(cands, person{u.ID, u.Name, u.Role})
@@ -269,10 +273,10 @@ func GetApproval(c *gin.Context) {
 	}
 	me := myEmployeeID(c)
 	inDown := false
-	if !isGroupLevel(c) && me != nil && r.RequesterEmployeeID != nil {
+	if !seesAll(c) && me != nil && r.RequesterEmployeeID != nil {
 		inDown = inDownline(*me, *r.RequesterEmployeeID)
 	}
-	if !canSeeApproval(isGroupLevel(c), uid(c), me, &r, inDown) {
+	if !canSeeApproval(seesAll(c), uid(c), me, &r, inDown) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "tidak berwenang"})
 		return
 	}

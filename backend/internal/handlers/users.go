@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-var validRole = map[string]bool{"super_admin": true, "hr_admin": true, "manager": true, "employee": true}
+var validRole = map[string]bool{"super_admin": true, "hr_admin": true, "manager": true, "leader": true, "komisaris": true, "employee": true}
 
 type userRow struct {
 	models.User
@@ -23,7 +23,13 @@ type userRow struct {
 
 func ListUsers(c *gin.Context) {
 	var us []models.User
-	database.DB.Preload("Businesses").Order("name").Find(&us)
+	q := database.DB.Preload("Businesses").Order("name")
+	// a selected business shows only its people (group-level accounts reach every business, so they stay listed)
+	if b, _ := strconv.Atoi(c.Query("business_id")); b > 0 {
+		q = q.Where(`role IN ('super_admin','hr_admin') OR id IN (SELECT user_id FROM user_businesses WHERE business_id = ?)
+			OR employee_id IN (SELECT id FROM employees WHERE business_id = ?)`, b, b)
+	}
+	q.Find(&us)
 	names, niks := map[uint]string{}, map[uint]string{}
 	var emps []models.Employee
 	database.DB.Select("id, name, nik").Find(&emps)

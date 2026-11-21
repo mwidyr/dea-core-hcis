@@ -292,7 +292,7 @@ func buildReport(c *gin.Context, typ string) (reportData, int, string) {
 		rep.Title = "Laporan Proyek"
 		rep.Subtitle = scopeName(c)
 		q := scopeBusiness(c, database.DB.Model(&models.Project{}), "projects.business_id")
-		if !isGroupLevel(c) {
+		if !seesAll(c) {
 			me := myEmployeeID(c)
 			if me == nil {
 				q = q.Where("1 = 0")

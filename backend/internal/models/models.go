@@ -155,6 +155,9 @@ type User struct {
 	Role         string `json:"role"`
 	EmployeeID   *uint  `gorm:"index" json:"employee_id"`
 	IsActive     bool   `gorm:"default:true" json:"is_active"`
+	AvatarPath   string `json:"-"` // profile photo (relative path in the upload store), empty = initials
+	AvatarMime   string `json:"-"`
+	AvatarAt     int64  `json:"-"` // unix time of the last change, used by the browser to refresh its cached copy
 	// Businesses the user may switch to. super_admin/hr_admin see all regardless.
 	Businesses []Business `gorm:"many2many:user_businesses" json:"businesses,omitempty"`
 }
@@ -534,13 +537,15 @@ type Task struct {
 	Status           string     `gorm:"index" json:"status"` // todo | in_progress | review | done (leaf tasks; parents are derived)
 	StartDate        *time.Time `json:"start_date"`
 	DueDate          *time.Time `json:"due_date"`
-	ActualStart      *time.Time `json:"actual_start"`      // first time the task went In Progress
-	ProgressPct      int        `json:"own_progress"`      // manual progress (0–100) of a task without sub tasks; parents are derived
-	Weight           *float64   `json:"weight"`            // "bobot": share of this task among its siblings (sub tasks, or top-level tasks of a project)
-	RequireResult    bool       `json:"require_result"`    // PIC must attach the result before completing
-	RequiresApproval bool       `json:"requires_approval"` // completion goes through approval before the task is closed
-	ApprovalLevels   int        `json:"approval_levels"`   // 1–3 n+1 levels
-	ApproverUserID   *uint      `json:"approver_user_id"`  // optional fixed approver instead of the PIC's superiors
+	PlanStartTime    string     `gorm:"size:5" json:"plan_start_time"` // planned clock time "HH:MM" on the start date (optional)
+	PlanEndTime      string     `gorm:"size:5" json:"plan_end_time"`   // planned clock time "HH:MM" on the due date (optional)
+	ActualStart      *time.Time `json:"actual_start"`                  // first time the task went In Progress
+	ProgressPct      int        `json:"own_progress"`                  // manual progress (0–100) of a task without sub tasks; parents are derived
+	Weight           *float64   `json:"weight"`                        // "bobot": share of this task among its siblings (sub tasks, or top-level tasks of a project)
+	RequireResult    bool       `json:"require_result"`                // PIC must attach the result before completing
+	RequiresApproval bool       `json:"requires_approval"`             // completion goes through approval before the task is closed
+	ApprovalLevels   int        `json:"approval_levels"`               // 1–3 n+1 levels
+	ApproverUserID   *uint      `json:"approver_user_id"`              // optional fixed approver instead of the PIC's superiors
 	ApprovalID       *uint      `json:"approval_id"`
 	CompletedAt      *time.Time `json:"completed_at"`
 	CreatedByUserID  uint       `json:"created_by_user_id"`
@@ -582,6 +587,15 @@ type TaskMember struct {
 	TaskID     uint   `gorm:"uniqueIndex:idx_task_member" json:"task_id"`
 	EmployeeID uint   `gorm:"uniqueIndex:idx_task_member" json:"employee_id"`
 	Role       string `json:"role"`
+}
+
+// TaskSession is one stretch of work on a task ("Mulai/Lanjutkan" until "Pause/Selesai"). Actual time = the sum of sessions.
+type TaskSession struct {
+	ID         uint       `gorm:"primaryKey" json:"id"`
+	TaskID     uint       `gorm:"index" json:"task_id"`
+	EmployeeID uint       `gorm:"index" json:"employee_id"`
+	StartedAt  time.Time  `gorm:"index" json:"started_at"`
+	EndedAt    *time.Time `json:"ended_at"`
 }
 
 type TaskAttachment struct {
@@ -668,8 +682,10 @@ type RecurringTask struct {
 	Frequency        string     `json:"frequency"`
 	Weekday          int        `json:"weekday"`
 	DayOfMonth       int        `json:"day_of_month"`
-	DueAfterDays     int        `json:"due_after_days"` // deadline = occurrence date + this many days
-	StartDate        time.Time  `json:"start_date"`     // first possible occurrence
+	DueAfterDays     int        `json:"due_after_days"`                // deadline = occurrence date + this many days
+	PlanStartTime    string     `gorm:"size:5" json:"plan_start_time"` // planned clock time copied to every generated task
+	PlanEndTime      string     `gorm:"size:5" json:"plan_end_time"`
+	StartDate        time.Time  `json:"start_date"` // first possible occurrence
 	EndDate          *time.Time `json:"end_date"`
 	KPITitle         string     `json:"kpi_title"` // link generated tasks to the PIC's auto KPI item with this title (same period)
 	RequireResult    bool       `json:"require_result"`

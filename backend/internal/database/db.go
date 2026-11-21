@@ -55,6 +55,7 @@ func migrate(db *gorm.DB) {
 	freshAttachmentFlag := db.Migrator().HasTable(&models.LeaveType{}) && !db.Migrator().HasColumn(&models.LeaveType{}, "requires_attachment")
 	err := db.AutoMigrate(
 		&models.Business{},
+		&models.TaskSession{},
 		&models.OrgUnit{},
 		&models.Position{},
 		&models.Location{},

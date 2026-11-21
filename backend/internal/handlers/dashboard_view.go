@@ -134,6 +134,34 @@ func dashboardLayout(c *gin.Context, out gin.H, view string, emps []models.Emplo
 	add(totLate, fmt.Sprintf("%d Task Terlambat Mulai", totLate), orSub(strings.Join(lateTitles, " · "), "Sudah waktunya mulai tetapi masih To Do"), "Mulai", "amber", "/tasks")
 	add(int(pending), fmt.Sprintf("%d Approval Pending", pending), strings.Join(parts, " · "), "Pending", "amber", "/approval")
 
+	// my own submissions: still waiting for a superior, or decided in the last 7 days — so the requester knows where each one stands
+	var mineReqs []struct {
+		Title    string
+		Status   string
+		Approver string
+		Decider  string
+	}
+	database.DB.Raw(`SELECT r.title, r.status,
+			COALESCE((SELECT u.name FROM approval_steps s JOIN users u ON u.id = s.approver_user_id WHERE s.request_id = r.id AND s.level = r.current_level LIMIT 1), '') AS approver,
+			COALESCE((SELECT u2.name FROM approval_steps s2 JOIN users u2 ON u2.id = s2.acted_by_user_id WHERE s2.request_id = r.id AND s2.acted_by_user_id IS NOT NULL ORDER BY s2.level DESC LIMIT 1), '') AS decider
+		FROM approval_requests r
+		WHERE r.requester_user_id = ? AND (r.status = 'Pending' OR (r.status IN ('Approved','Rejected') AND r.decided_at > now() - interval '7 days'))
+		ORDER BY r.created_at DESC LIMIT 8`, uid(c)).Scan(&mineReqs)
+	for _, r := range mineReqs {
+		switch r.Status {
+		case "Pending":
+			sub := "Menunggu persetujuan atasan"
+			if r.Approver != "" {
+				sub = "Menunggu persetujuan " + r.Approver
+			}
+			actions = append(actions, actionItem{r.Title, sub, "Menunggu", "amber", "/approval?tab=mine"})
+		case "Approved":
+			actions = append(actions, actionItem{r.Title, orSub("Disetujui oleh "+r.Decider, "Disetujui"), "Disetujui", "green", "/approval?tab=mine"})
+		case "Rejected":
+			actions = append(actions, actionItem{r.Title, orSub("Ditolak oleh "+r.Decider, "Ditolak"), "Ditolak", "red", "/approval?tab=mine"})
+		}
+	}
+
 	// projects: "Project / Pekerjaan Aktif"
 	biz := map[uint]string{}
 	var bs []models.Business

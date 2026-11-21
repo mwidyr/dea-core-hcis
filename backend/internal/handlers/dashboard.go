@@ -29,7 +29,7 @@ func Dashboard(c *gin.Context) {
 	now := today()
 	// "Tim Saya" (the caller's reports, or the whole business for admin/HR) or "Personal" (only themselves).
 	// Everyone except a super admin has Personal; the toggle only shows when they also have a team.
-	canTeam := isGroupLevel(c) || hasDirectReports(c)
+	canTeam := seesAll(c) || hasDirectReports(c)
 	canPersonal := role(c) != "super_admin"
 	view := dashboardView(canTeam, canPersonal, c.DefaultQuery("view", "team"))
 	emps := kpiEmployees(c) // active employees inside the caller's scope

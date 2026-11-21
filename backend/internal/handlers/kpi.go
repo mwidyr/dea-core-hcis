@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"github.com/dea-core/hcis/backend/internal/perm"
 	"math"
 	"net/http"
 	"sort"
@@ -302,8 +303,14 @@ func computeScores(emps []models.Employee, per kpiPeriod, st models.KPISettings)
 		last = now
 	}
 	recap := map[uint]recapRow{}
+	var needAtt []models.Employee // Direksi / Komisaris have no attendance: their score uses KPI and tasks only
+	for _, e := range emps {
+		if e.Position == nil || !noAttendanceClass(e.Position.LevelClass) {
+			needAtt = append(needAtt, e)
+		}
+	}
 	if !last.Before(per.From) {
-		for _, r := range buildRecap(emps, per.From, last) {
+		for _, r := range buildRecap(needAtt, per.From, last) {
 			recap[r.EmployeeID] = r
 		}
 	}
@@ -381,7 +388,7 @@ func kpiEmployees(c *gin.Context) []models.Employee {
 		q = q.Where("employees.unit_id IN (?)", subtreeUnits(uint(uid)))
 	}
 	var emps []models.Employee
-	q.Preload("Unit").Preload("Business").Order("employees.name").Limit(1000).Find(&emps)
+	q.Preload("Unit").Preload("Business").Preload("Position").Order("employees.name").Limit(1000).Find(&emps)
 	return emps
 }
 
@@ -450,7 +457,7 @@ func ScorecardDetail(c *gin.Context) {
 	}
 	id := paramID(c)
 	var emp models.Employee
-	if employeeScope(c, database.DB.Model(&models.Employee{})).Preload("Unit").Preload("Business").Where("employees.id = ?", id).Limit(1).Find(&emp).Error != nil || emp.ID == 0 {
+	if employeeScope(c, database.DB.Model(&models.Employee{})).Preload("Unit").Preload("Business").Preload("Position").Where("employees.id = ?", id).Limit(1).Find(&emp).Error != nil || emp.ID == 0 {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Anda tidak berhak melihat scorecard karyawan ini"})
 		return
 	}
@@ -500,6 +507,12 @@ func scoreTasks(id uint, per kpiPeriod) []scoreTaskRow {
 // ---- employee KPI items: CRUD ----
 
 func canAssignKPI(c *gin.Context, empID uint) bool {
+	if !perm.Allowed(role(c), "kpi.assign") {
+		return false
+	}
+	if role(c) == "komisaris" { // a Komisaris sets KPI for the Direktur only
+		return isDirekturEmployee(empID)
+	}
 	if isGroupLevel(c) {
 		return true
 	}
@@ -545,7 +558,7 @@ func ListKPIItems(c *gin.Context) {
 	for _, v := range views {
 		out = append(out, row{v, info == nil && canAssignKPI(c, v.EmployeeID)})
 	}
-	c.JSON(http.StatusOK, gin.H{"data": out, "period": per.Label, "can_assign": info == nil && (isGroupLevel(c) || hasDirectReports(c)), "closed": info})
+	c.JSON(http.StatusOK, gin.H{"data": out, "period": per.Label, "can_assign": info == nil && perm.Allowed(role(c), "kpi.assign") && (isGroupLevel(c) || hasDirectReports(c) || role(c) == "komisaris"), "closed": info})
 }
 
 type kpiItemInput struct {
@@ -771,7 +784,7 @@ func buildDeptViews(ds []models.DeptKPI, per kpiPeriod, st models.KPISettings) [
 	}
 	if len(need) > 0 {
 		var emps []models.Employee
-		database.DB.Preload("Unit").Preload("Business").Where("status = 'Aktif' AND business_id IN ?", need).Find(&emps)
+		database.DB.Preload("Unit").Preload("Business").Preload("Position").Where("status = 'Aktif' AND business_id IN ?", need).Find(&emps)
 		all := computeScores(emps, per, st)
 		for _, s := range all {
 			if s.UnitID != nil {

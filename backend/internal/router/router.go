@@ -118,6 +118,13 @@ func Setup(cfg *config.Config) *gin.Engine {
 	auth.DELETE("/roster-adjustments/:id/attachments/:aid", handlers.DeleteRosterAttachment)
 
 	auth.GET("/tasks", handlers.ListTasks)
+	auth.POST("/me/avatar", handlers.UploadMyAvatar)
+	auth.DELETE("/me/avatar", handlers.DeleteMyAvatar)
+	auth.GET("/employees/:id/avatar", handlers.EmployeeAvatar)
+	auth.GET("/tasks/activity", handlers.ActivityList)
+	auth.POST("/tasks/:id/sessions/start", handlers.StartTaskSession)
+	auth.POST("/tasks/:id/sessions/pause", handlers.PauseTaskSession)
+	auth.GET("/attendance/me/today", handlers.MyAttendanceToday)
 	auth.GET("/tasks/assignees", handlers.TaskAssignees)
 	auth.GET("/tasks/givers", handlers.TaskGivers)
 	auth.POST("/tasks", handlers.CreateTask)

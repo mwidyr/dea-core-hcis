@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/dea-core/hcis/backend/internal/approval"
@@ -29,7 +30,12 @@ type flowView struct {
 // ListApprovalFlows returns every flow with its ordered steps and requester positions (HR / super admin only).
 func ListApprovalFlows(c *gin.Context) {
 	var flows []models.ApprovalFlow
-	database.DB.Preload("Steps").Preload("Requesters").Order("request_type, id").Find(&flows)
+	fq := database.DB.Preload("Steps").Preload("Requesters").Order("request_type, id")
+	// a selected business lists its own flows plus the ones that apply to every business
+	if b, _ := strconv.Atoi(c.Query("business_id")); b > 0 {
+		fq = fq.Where("business_id = ? OR business_id IS NULL", b)
+	}
+	fq.Find(&flows)
 	var pos []models.Position
 	database.DB.Select("id, title").Find(&pos)
 	title := map[uint]string{}

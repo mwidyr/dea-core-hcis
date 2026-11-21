@@ -15,9 +15,34 @@ func role(c *gin.Context) string { v, _ := c.Get("role"); s, _ := v.(string); re
 // isGroupLevel roles may see every business ("Semua Bisnis").
 func isGroupLevel(c *gin.Context) bool { r := role(c); return r == "super_admin" || r == "hr_admin" }
 
-// allowedBusinessIDs returns nil for group-level users (no restriction).
+// seesAll: roles that may READ every business and person (group-level + Komisaris). Write powers stay with isGroupLevel.
+func seesAll(c *gin.Context) bool { return isGroupLevel(c) || role(c) == "komisaris" }
+
+// topLevelClasses are the "Direksi" / "Komisaris" positions: no attendance and no approvals of their own.
+var topLevelClasses = []string{"Direksi", "Komisaris"}
+
+func noAttendanceClass(levelClass string) bool {
+	for _, c := range topLevelClasses {
+		if c == levelClass {
+			return true
+		}
+	}
+	return false
+}
+
+// noAttendanceSQL keeps Direksi / Komisaris out of attendance lists, recaps and scores (they have no approver, so no attendance to approve).
+const noAttendanceSQL = "employees.id NOT IN (SELECT e.id FROM employees e JOIN positions p ON p.id = e.position_id WHERE p.level_class IN ('Direksi','Komisaris'))"
+
+// isDirekturEmployee: does the employee hold a Direksi position (the only people a Komisaris may assign work to)?
+func isDirekturEmployee(empID uint) bool {
+	var n int64
+	database.DB.Raw(`SELECT COUNT(*) FROM employees e JOIN positions p ON p.id = e.position_id WHERE e.id = ? AND p.level_class = 'Direksi'`, empID).Scan(&n)
+	return n > 0
+}
+
+// allowedBusinessIDs returns nil for users who see every business (no restriction).
 func allowedBusinessIDs(c *gin.Context) []uint {
-	if isGroupLevel(c) {
+	if seesAll(c) {
 		return nil
 	}
 	var ids []uint

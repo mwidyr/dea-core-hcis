@@ -61,7 +61,7 @@ func inDownline(me, target uint) bool {
 
 func leaveScope(c *gin.Context, q *gorm.DB) *gorm.DB {
 	q = scopeBusiness(c, q, "leave_requests.business_id")
-	if isGroupLevel(c) {
+	if seesAll(c) {
 		return q
 	}
 	me := myEmployeeID(c)
@@ -73,7 +73,7 @@ func leaveScope(c *gin.Context, q *gorm.DB) *gorm.DB {
 
 func employeeScope(c *gin.Context, q *gorm.DB) *gorm.DB {
 	q = scopeBusiness(c, q, "employees.business_id").Where("employees.status = 'Aktif'")
-	if isGroupLevel(c) {
+	if seesAll(c) {
 		return q
 	}
 	me := myEmployeeID(c)
@@ -85,7 +85,7 @@ func employeeScope(c *gin.Context, q *gorm.DB) *gorm.DB {
 
 // canViewLeave: the requester, their superiors, anyone who must approve it, and group-level roles.
 func canViewLeave(c *gin.Context, lr models.LeaveRequest) bool {
-	if isGroupLevel(c) {
+	if seesAll(c) {
 		return true
 	}
 	if me := myEmployeeID(c); me != nil && (*me == lr.EmployeeID || inDownlineOf(*me, lr.EmployeeID)) {
