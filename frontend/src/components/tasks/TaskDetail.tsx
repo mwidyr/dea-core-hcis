@@ -91,7 +91,7 @@ export default function TaskDetail({ id, onClose, onChanged, onOpen }: Props) {
           </div>
 
           <dl className="grid grid-cols-3 gap-3">
-            {[['Pemberi tugas', t.assigner_name || '–'], ['PIC', t.pic_name], ['Unit', t.unit_name || '–'], ['Mulai', fmt(t.start_date)], ['Deadline', fmt(t.due_date)], ['Bobot', t.weight != null ? `${t.weight}` : '–'], ...(t.kpi_title ? [['Terkait KPI', t.kpi_title]] : [])].map(([k, v]) => (
+            {[['Pemberi tugas', t.assigner_name || '–'], ['PIC', t.pic_name], ['Unit', t.unit_name || '–'], ['Plan mulai', `${fmt(t.start_date)}${t.plan_start_time ? ` · ${t.plan_start_time}` : ''}`], ['Plan selesai (deadline)', `${fmt(t.due_date)}${t.plan_end_time ? ` · ${t.plan_end_time}` : ''}`], ['Aktual mulai', t.actual_start ? dt(t.actual_start) : '–'], ['Aktual selesai', t.completed_at ? dt(t.completed_at) : t.actual_start ? 'berjalan' : '–'], ['Bobot', t.weight != null ? `${t.weight}` : '–'], ...(t.kpi_title ? [['Terkait KPI', t.kpi_title]] : [])].map(([k, v]) => (
               <div key={k}><dt className="text-muted text-[10.5px]">{k}</dt><dd className="font-semibold">{v}</dd></div>
             ))}
           </dl>

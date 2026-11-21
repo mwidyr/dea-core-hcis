@@ -24,6 +24,12 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
   return token ? <>{children}</> : <Navigate to="/login" replace />
 }
 
+// Leader never sees Setup Organisasi / Kontrak & Dokumen, even by typing the address
+function NotFor({ roles, children }: { roles: string[]; children: React.ReactNode }) {
+  const role = useAuthStore((s) => s.user?.role ?? '')
+  return roles.includes(role) ? <Navigate to="/employees" replace /> : <>{children}</>
+}
+
 const later: string[] = []
 
 export default function App() {
@@ -33,7 +39,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/absen" element={<Absen />} />
         <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-        <Route path="/org" element={<PrivateRoute><Org /></PrivateRoute>} />
+        <Route path="/org" element={<PrivateRoute><NotFor roles={['leader']}><Org /></NotFor></PrivateRoute>} />
         <Route path="/employees" element={<PrivateRoute><Employees /></PrivateRoute>} />
         <Route path="/employees/new" element={<PrivateRoute><EmployeeDetail /></PrivateRoute>} />
         <Route path="/employees/:id" element={<PrivateRoute><EmployeeDetail /></PrivateRoute>} />
@@ -48,7 +54,7 @@ export default function App() {
         <Route path="/approval-history" element={<PrivateRoute><Approvals mode="history" /></PrivateRoute>} />
         <Route path="/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />
         <Route path="/schedule" element={<PrivateRoute><Schedule /></PrivateRoute>} />
-        <Route path="/contracts" element={<PrivateRoute><Contracts /></PrivateRoute>} />
+        <Route path="/contracts" element={<PrivateRoute><NotFor roles={['leader']}><Contracts /></NotFor></PrivateRoute>} />
         {later.map((p) => <Route key={p} path={p} element={<PrivateRoute><Placeholder /></PrivateRoute>} />)}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

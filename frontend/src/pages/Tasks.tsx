@@ -26,7 +26,7 @@ export default function Tasks() {
   const [params, setParams] = useSearchParams()
   const [view, setView] = useState<View>('list')
   const [mode, setMode] = useState<'tasks' | 'recurring'>('tasks')
-  const [scope, setScope] = useState('mine')
+  const [scope, setScope] = useState('all')
   const [status, setStatus] = useState('')
   const [deadline, setDeadline] = useState('')
   const [priority, setPriority] = useState('')

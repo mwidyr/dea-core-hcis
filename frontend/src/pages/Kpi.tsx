@@ -303,11 +303,12 @@ function ScoreDetail({ id, period, onClose }: { id: number; period: string; onCl
   useEffect(() => { getKpiHistory(id).then((r) => setHist(r.data.data.filter((h) => h.period_key.includes('Q') === period.includes('Q')))).catch(() => setHist([])) }, [id, period])
   if (!d) return <Modal open onClose={onClose} title="Scorecard"><p className="text-xs text-muted">Memuat…</p></Modal>
   const s = d.score, st = d.settings
-  const comps = [{ name: 'KPI', v: s.kpi_score, w: st.weight_kpi, note: `${s.items.length} item KPI` }, { name: 'Tugas', v: s.task_score, w: st.weight_task, note: `${s.tasks.done}/${s.tasks.total} selesai · ${s.tasks.on_time} tepat waktu` }, { name: 'Absensi', v: s.attendance_score, w: st.weight_attendance, note: `${s.attendance.present}/${s.attendance.required} hari hadir` }]
+  const comps = [{ name: 'KPI', v: s.kpi_score, w: st.weight_kpi, note: `${s.items.length} item KPI` }, { name: 'Tugas', v: s.task_score, w: st.weight_task, note: `${s.tasks.done}/${s.tasks.total} selesai` }, { name: 'Absensi', v: s.attendance_score, w: st.weight_attendance, note: `${s.attendance.present}/${s.attendance.required} hari hadir` }]
   const radar = comps.map((c) => ({ komponen: c.name, skor: c.v ?? 0, target: st.good_min }))
   return (
-    <Modal open onClose={onClose} title={`Scorecard — ${s.name}`} size="lg">
+    <Modal open onClose={onClose} title={`Scorecard — ${s.name} · Periode ${d.period}`} size="lg">
       <div className="space-y-4 text-xs">
+        <div className="text-muted">Periode scorecard: <b className="text-ink">{d.period}</b></div>
         <div className="flex items-center gap-4 flex-wrap">
           <div className="text-center px-4"><div className="text-4xl font-extrabold" style={{ color: scoreColor(s.final_score, st.good_min, st.attention_min) }}>{pctText(s.final_score)}</div><div className="text-muted">skor akhir · {d.period}</div></div>
           <div className="flex-1 min-w-[220px]"><div className="font-bold text-sm">{s.name}</div><div className="text-muted">{s.unit_name} · {s.nik}</div><div className="mt-1.5 flex gap-1.5">{s.status && <Badge tone={STATUS_TONE[s.status]}>{s.status}</Badge>}{s.rank > 0 && <Badge tone="blue">Peringkat #{s.rank}</Badge>}</div></div>

@@ -27,7 +27,7 @@ export default function TaskForm({ task, defaults, onClose, onSaved }: Props) {
     title: task?.title ?? '', description: task?.description ?? '', priority: task?.priority ?? 'normal',
     pic_id: task?.pic_id ?? defaults?.pic_id ?? 0, assigner_id: task ? task.assigner_id : user?.employee_id ?? null,
     project_id: task ? task.project_id : defaults?.project_id ?? null, parent_id: task ? task.parent_id : defaults?.parent_id ?? null,
-    start_date: task?.start_date?.slice(0, 10) ?? '', due_date: task?.due_date?.slice(0, 10) ?? '', weight: task?.weight != null ? String(task.weight) : '',
+    start_date: task?.start_date?.slice(0, 10) ?? '', due_date: task?.due_date?.slice(0, 10) ?? '', plan_start_time: task?.plan_start_time ?? '', plan_end_time: task?.plan_end_time ?? '', weight: task?.weight != null ? String(task.weight) : '',
     require_result: task?.require_result ?? false, requires_approval: task?.requires_approval ?? true, approval_levels: task?.approval_levels ?? 1,
     approver_user_id: task?.approver_user_id ?? 0, kpi_id: task?.kpi_id ?? 0,
     member_ids: task?.members.filter((m) => m.role === 'member').map((m) => m.employee_id) ?? [] as number[],
@@ -46,7 +46,9 @@ export default function TaskForm({ task, defaults, onClose, onSaved }: Props) {
   const [busy, setBusy] = useState(false)
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }))
 
-  useEffect(() => { getTaskAssignees().then((r) => setAssignees(r.data)); getTaskGivers().then((r) => setGivers(r.data)).catch(() => setGivers([])) }, [])
+  useEffect(() => { getTaskAssignees().then((r) => setAssignees(r.data)) }, [])
+  // the giver list leaves out the PIC's own subordinates (a subordinate cannot instruct their superior)
+  useEffect(() => { getTaskGivers(f.pic_id || undefined).then((r) => setGivers(r.data)).catch(() => setGivers([])) }, [f.pic_id])
   const pic = assignees.find((a) => a.id === f.pic_id)
   const parent = parents.find((p) => p.id === f.parent_id)
   const project = projects.find((p) => p.id === f.project_id)
@@ -83,6 +85,7 @@ export default function TaskForm({ task, defaults, onClose, onSaved }: Props) {
     if (!f.pic_id) return setError('Pilih PIC (penerima tugas)')
     if (kind === 'sub' && !f.parent_id) return setError('Pilih induk tugas untuk sub tugas')
     if (f.start_date && f.due_date && f.due_date < f.start_date) return setError('Deadline tidak boleh sebelum tanggal mulai')
+    if (f.start_date && f.start_date === f.due_date && f.plan_start_time && f.plan_end_time && f.plan_end_time <= f.plan_start_time) return setError('Jam selesai rencana harus setelah jam mulai')
     setBusy(true)
     try {
       const payload = {
@@ -109,7 +112,7 @@ export default function TaskForm({ task, defaults, onClose, onSaved }: Props) {
 
         <div className="border-t border-line pt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="col-span-2 font-bold">Penugasan</div>
-          <L label="Pemberi tugas *" hint="(siapa saja kecuali bawahan Anda — termasuk instruksi via chat/call)">
+          <L label="Pemberi tugas *" hint="(siapa saja kecuali bawahan Anda dan bawahan PIC — termasuk instruksi via chat/call)">
             <select className="input w-full" disabled={dis} value={f.assigner_id ?? ''} onChange={(e) => set('assigner_id', e.target.value ? Number(e.target.value) : null)}>
               <option value="">— Pilih pemberi tugas —</option>{givers.map((p) => <option key={p.id} value={p.id}>{p.name}{p.relation === 'diri' ? ' (saya)' : p.relation === 'atasan' ? ' (atasan)' : ''}</option>)}
               {f.assigner_id && !givers.some((p) => p.id === f.assigner_id) && <option value={f.assigner_id}>{task?.assigner_name || 'Saya'}</option>}
@@ -149,8 +152,11 @@ export default function TaskForm({ task, defaults, onClose, onSaved }: Props) {
               </select>
             </L></div>
           )}
-          <L label="Mulai" hint="(opsional)"><DateField value={f.start_date} businessId={biz} onChange={(v) => { set('start_date', v); if (f.due_date && f.due_date < v) set('due_date', v) }} /></L>
-          <L label="Deadline" hint="(opsional)"><DateField value={f.due_date} min={f.start_date || undefined} businessId={biz} onChange={(v) => set('due_date', v)} /></L>
+          {task?.is_parent && <div className="col-span-2 text-muted bg-sunken rounded-lg px-3 py-2">Tugas induk: tanggal mulai dan deadline otomatis mengikuti sub tugas paling awal dan paling akhir, jadi tidak diisi di sini.</div>}
+          {!task?.is_parent && <>
+          <L label="Mulai" hint="(opsional)"><div className="flex gap-2"><div className="flex-1"><DateField value={f.start_date} businessId={biz} onChange={(v) => { set('start_date', v); if (f.due_date && f.due_date < v) set('due_date', v) }} /></div><input type="time" className="input w-28" aria-label="Jam mulai rencana" value={f.plan_start_time} onChange={(e) => set('plan_start_time', e.target.value)} /></div></L>
+          <L label="Deadline" hint="(opsional)"><div className="flex gap-2"><div className="flex-1"><DateField value={f.due_date} min={f.start_date || undefined} businessId={biz} onChange={(v) => set('due_date', v)} /></div><input type="time" className="input w-28" aria-label="Jam selesai rencana" value={f.plan_end_time} onChange={(e) => set('plan_end_time', e.target.value)} /></div></L>
+          </>}
           {(topLevelProject || kind === 'sub') && <L label={kind === 'sub' ? 'Bobot sub tugas' : 'Bobot proyek (%)'} hint={kind === 'sub' ? '(opsional — porsi sub tugas ini terhadap sub tugas lain pada induk yang sama; dipakai bila SEMUA sub tugas punya bobot)' : '(opsional — bobot tahapan ini di proyek & Kurva-S)'}><input className="input w-full" type="number" min={0} max={100} step="any" disabled={dis} value={f.weight} onChange={(e) => set('weight', e.target.value)} placeholder="mis. 25" /></L>}
         </div>
 

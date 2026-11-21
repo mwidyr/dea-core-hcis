@@ -1,10 +1,12 @@
 export interface Business { id: number; code: string; name: string }
 export interface User {
   id: number; email: string; name: string
-  role: 'super_admin' | 'hr_admin' | 'manager' | 'employee'
+  role: 'super_admin' | 'hr_admin' | 'komisaris' | 'manager' | 'leader' | 'employee'
   employee_id: number | null
   businesses: Business[]
   permissions?: string[]
+  avatar?: number; has_avatar?: boolean
+  no_attendance?: boolean // Direksi / Komisaris: no attendance
 }
 export interface OrgUnit { id: number; business_id: number; level: number; type_name: string; name: string; parent_id: number | null; is_active: boolean; parent?: OrgUnit }
 export interface Position { id: number; business_id: number; title: string; unit_id: number | null; level_class: string; reports_to_id: number | null; unit?: OrgUnit; holder?: string }
@@ -87,6 +89,9 @@ export interface DevAccount { id: number; name: string; email: string; role: Use
 
 export type TaskStatus = 'todo' | 'in_progress' | 'review' | 'done'
 export interface TaskMember { employee_id: number; name: string; role: 'member' | 'watcher' }
+export interface TaskSessionRow { id: number; started_at: string; ended_at: string | null }
+export interface ActivityRow extends TaskRow { sessions: TaskSessionRow[]; minutes: number; running: boolean; can_session: boolean; can_finish: boolean }
+export interface AttendanceToday { applicable: boolean; state?: 'none' | 'working' | 'done'; check_in?: string; check_out?: string; location?: string; work_minutes?: number; server_time?: string }
 export interface TaskRow {
   id: number; business_id: number; project_id: number | null; parent_id: number | null; title: string; description: string
   priority: 'normal' | 'tinggi'; assigner_id: number | null; pic_id: number; unit_id: number | null
@@ -97,6 +102,7 @@ export interface TaskRow {
   attachment_count: number; comment_count: number; waiting_for: string; can_manage: boolean; can_work: boolean; depth: number
   kpi_id: number | null; kpi_title: string
   own_progress: number; actual_start: string | null; is_pic: boolean
+  plan_start_time?: string; plan_end_time?: string; pic_avatar?: number
   timeliness: Timeliness; timeliness_label: string; unit_path: { level: number; name: string }[]
   pending_deadline?: DeadlineRequest | null
 }
@@ -142,6 +148,7 @@ export interface ScoreTaskRow { id: number; title: string; due_date: string | nu
 export interface KpiClose { id: number; period_key: string; status: 'closed' | 'open'; auto: boolean; closed_at: string; closed_by: string; employees: number; average_score: number | null; company_score: number | null }
 export interface KpiHistoryRow { period_key: string; label: string; kpi_score: number | null; task_score: number | null; attendance_score: number | null; final_score: number | null; status: KpiStatus | ''; rank: number }
 export interface RecurringTask {
+  plan_start_time?: string; plan_end_time?: string
   id: number; business_id: number; business_name: string; title: string; description: string; priority: 'normal' | 'tinggi'; pic_id: number; pic_name: string
   assigner_id: number | null; frequency: 'daily' | 'weekly' | 'monthly'; weekday: number; day_of_month: number; due_after_days: number
   start_date: string; end_date: string | null; kpi_title: string; require_result: boolean; requires_approval: boolean; approval_levels: number

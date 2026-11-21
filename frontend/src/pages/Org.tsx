@@ -12,12 +12,15 @@ import type { Business, Location, OrgUnit, Position } from '../types'
 
 type Tab = 'businesses' | 'units' | 'positions' | 'locations' | 'chart'
 // Order = seniority; the org chart puts each class on its own aligned row in this order.
-const LEVEL_CLASSES = ['Direksi', 'General Manager / Business Head', 'Manager / Head', 'Supervisor', 'Coordinator / Team Lead', 'Staff', 'Non Staff', 'Magang']
+const LEVEL_CLASSES = ['Komisaris', 'Direksi', 'General Manager / Business Head', 'Manager / Head', 'Supervisor', 'Coordinator / Team Lead', 'Staff', 'Non Staff', 'Magang']
 
 export default function Org() {
   const { businessId, businesses, refresh } = useBusinessStore()
   const canEdit = useAuthStore((s) => s.can)('org.manage')
-  const [tab, setTab] = useState<Tab>('units')
+  // everyone sees Lokasi Kerja + Bagan; the structure tabs (Bisnis / Unit / Jabatan) are shown to Super Admin, HR Admin, Komisaris and Manager (incl. Direktur).
+  // Editing inside them still needs the org.manage permission (Settings → Role & Izin).
+  const showStructure = useAuthStore((s) => ['super_admin', 'hr_admin', 'komisaris', 'manager'].includes(s.user?.role ?? ''))
+  const [tab, setTab] = useState<Tab>(showStructure ? 'units' : 'chart')
   const [units, setUnits] = useState<OrgUnit[]>([])
   const [positions, setPositions] = useState<Position[]>([])
   const [locations, setLocations] = useState<Location[]>([])
@@ -72,9 +75,9 @@ export default function Org() {
   const titles: Record<Tab, string> = { businesses: 'Bisnis', units: 'Unit', positions: 'Jabatan', locations: 'Lokasi', chart: '' }
 
   return (
-    <Layout title="Setup Organisasi Multi-Bisnis" subtitle="Bisnis, struktur L1–L10, jabatan, lokasi kerja, dan bagan organisasi">
+    <Layout title="Setup Organisasi Multi-Bisnis" subtitle={showStructure ? 'Bisnis, struktur L1–L10, jabatan, lokasi kerja, dan bagan organisasi' : 'Lokasi kerja dan bagan organisasi'}>
       <div className="card p-4">
-        <Tabs tabs={[{ id: 'businesses', label: `Bisnis (${visibleBusinesses.length})` }, { id: 'units', label: `Unit Organisasi (${units.length})` }, { id: 'positions', label: `Jabatan (${positions.length})` }, { id: 'locations', label: `Lokasi Kerja (${locations.length})` }, { id: 'chart', label: 'Bagan Organisasi' }]} value={tab} onChange={setTab} />
+        <Tabs tabs={[...(showStructure ? [{ id: 'businesses' as Tab, label: `Bisnis (${visibleBusinesses.length})` }, { id: 'units' as Tab, label: `Unit Organisasi (${units.length})` }, { id: 'positions' as Tab, label: `Jabatan (${positions.length})` }] : []), { id: 'locations' as Tab, label: `Lokasi Kerja (${locations.length})` }, { id: 'chart' as Tab, label: 'Bagan Organisasi' }]} value={tab} onChange={setTab} />
 
         {tab === 'businesses' && (
           <DataTable data={visibleBusinesses} rowKey={(b) => b.id} searchPlaceholder="Cari kode atau nama bisnis…"
@@ -110,7 +113,7 @@ export default function Org() {
               { head: 'Unit', render: (p) => unitName(p.unit_id) },
               { head: 'Level Posisi', render: (p) => p.level_class },
               { head: 'Melapor ke (n+1)', render: (p) => posTitle(p.reports_to_id) },
-              { head: 'Pemegang', render: (p) => p.holder === 'Vacant' ? <Badge tone="amber">Vacant</Badge> : p.holder },
+              { head: 'Pemegang', render: (p) => (p.holder === 'Vacant' ? '-' : p.holder) },
               { head: 'Bisnis', render: (p) => bizName(p.business_id) },
               { head: 'Aksi', render: (p) => canEdit && <Actions onEdit={() => { setError(''); setEdit({ kind: 'positions', data: { ...p, unit: undefined, holder: undefined } }) }} onDelete={() => remove('positions', p.id)} /> },
             ]} />
@@ -280,7 +283,7 @@ function BusinessChart({ biz, positions, zoom, resetKey }: { biz: Business; posi
         <div className="flex gap-1.5 text-[10.5px]">
           <Badge tone="blue">{positions.length} jabatan</Badge>
           <Badge tone="green">{positions.length - vacant} terisi</Badge>
-          {vacant > 0 && <Badge tone="amber">{vacant} vacant</Badge>}
+          {vacant > 0 && <Badge tone="amber">{vacant} kosong</Badge>}
         </div>
       </div>
       <div ref={box} className="overflow-auto bg-sunken/50 py-3 max-h-[70vh]">
@@ -299,7 +302,7 @@ function BusinessChart({ biz, positions, zoom, resetKey }: { biz: Business; posi
             {[...placed.values()].map(({ p, x, row }) => (
               <div key={p.id} className="org-node !block !max-w-none text-center overflow-hidden" style={{ position: 'absolute', left: cx(x) - NODE_W / 2, top: top(row), width: NODE_W, height: NODE_H }}>
                 <div className="text-xs font-bold leading-tight line-clamp-2">{p.title}</div>
-                <div className={`text-[10.5px] mt-0.5 truncate ${p.holder === 'Vacant' ? 'text-warn font-semibold' : 'text-muted'}`}>{p.holder}</div>
+                <div className="text-[10.5px] mt-0.5 truncate text-muted">{p.holder === 'Vacant' ? '-' : p.holder}</div>
                 <div className="text-[9.5px] text-muted truncate">{p.unit?.name}</div>
               </div>
             ))}

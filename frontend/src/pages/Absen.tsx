@@ -188,7 +188,7 @@ export default function Absen() {
                   if (a) setIdentifier(a.nik || a.email)
                 }}>
                   <option value="">— isi NIK/email &amp; password manual —</option>
-                  {(['super_admin', 'hr_admin', 'manager', 'employee'] as User['role'][]).map((role) => {
+                  {(['super_admin', 'hr_admin', 'komisaris', 'manager', 'leader', 'employee'] as User['role'][]).map((role) => {
                     const list = devAccounts.filter((a) => a.role === role && a.has_employee)
                     return list.length ? <optgroup key={role} label={ROLE_LABEL[role]}>{list.map((a) => <option key={a.id} value={a.id}>{a.name} — {a.nik}{a.position ? ` · ${a.position}` : ''}</option>)}</optgroup> : null
                   })}

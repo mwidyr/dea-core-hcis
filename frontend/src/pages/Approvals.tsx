@@ -20,7 +20,7 @@ const label = { Pending: 'Menunggu', Approved: 'Disetujui', Rejected: 'Ditolak',
 const kind = stepKind
 
 // who is/was deciding, e.g. "Abdul Haq (atasan n+1)"
-const chainText = (r: ApprovalRequest) => r.steps.map((s) => `${s.approver_name} (${kind[s.kind]})${s.status === 'Approved' ? ' ✓' : s.status === 'Rejected' ? ' ✗' : ''}`).join(' → ')
+const chainText = (r: ApprovalRequest) => (r.steps ?? []).map((s) => `${s.approver_name} (${kind[s.kind]})${s.status === 'Approved' ? ' ✓' : s.status === 'Rejected' ? ' ✗' : ''}`).join(' → ')
 
 // leave requests carry supporting documents (e.g. surat dokter) that the approver validates
 function LeaveFilesForApprover({ id }: { id: number }) {
@@ -59,7 +59,8 @@ function TaskFilesForApprover({ id }: { id: number }) {
 
 export default function Approvals({ mode }: { mode: 'inbox' | 'history' }) {
   const { businessId } = useBusinessStore()
-  const [tab, setTab] = useState<'inbox' | 'mine'>('inbox')
+  const [params0] = useSearchParams()
+  const [tab, setTab] = useState<'inbox' | 'mine'>(params0.get('tab') === 'mine' ? 'mine' : 'inbox')
   const [rows, setRows] = useState<ApprovalRequest[]>([])
   const [decision, setDecision] = useState<{ req: ApprovalRequest; approve: boolean; note: string } | null>(null)
   const [error, setError] = useState('')
@@ -79,7 +80,7 @@ export default function Approvals({ mode }: { mode: 'inbox' | 'history' }) {
 
   const load = () => {
     const p = bizParams(businessId)
-    const call = mode === 'history' ? getApprovalHistory({ ...p, status: fStatus || undefined, type: fType || undefined }) : tab === 'inbox' ? getApprovalInbox(p) : getMyApprovalRequests()
+    const call = mode === 'history' ? getApprovalHistory({ ...p, status: fStatus || undefined, type: fType || undefined }) : tab === 'inbox' ? getApprovalInbox(p) : getMyApprovalRequests(p)
     call.then((r) => setRows(r.data))
   }
   useEffect(load, [businessId, mode, tab, fStatus, fType])

@@ -8,27 +8,30 @@ import Pagination from '../components/ui/Pagination'
 import PasswordInput from '../components/ui/PasswordInput'
 import ApprovalFlowEditor from '../components/settings/ApprovalFlowEditor'
 import Tabs from '../components/ui/Tabs'
+import ErrorBoundary from '../components/ErrorBoundary'
 import { useSearchParams } from 'react-router-dom'
 import { useAuthStore } from '../store/auth'
-import { useBusinessStore } from '../store/business'
+import { bizParams, useBusinessStore } from '../store/business'
 import { createUser, disconnectDrive, getAudit, getDriveConnectUrl, getDriveStatus, retryDriveFailed, syncDriveNow, getRolePermissions, resetRolePermissions, setRolePermissions, getEmployees, getKpiSettings, getLeaveTypes, getUsers, saveKpiSettings, saveLeaveType, updateUser } from '../services/api'
 import type { DriveStatusData, AppUser, AuditRow, Employee, KpiSettings, LeaveType, PermDef, User } from '../types'
 
-type Tab = 'users' | 'roles' | 'drive' | 'master' | 'kpi' | 'workflow' | 'audit'
+type Tab = 'users' | 'roles' | 'leader' | 'drive' | 'master' | 'kpi' | 'workflow' | 'audit'
 const ROLES: { id: User['role']; label: string; hint: string }[] = [
   { id: 'super_admin', label: 'Super Admin', hint: 'Semua akses, semua bisnis' },
   { id: 'hr_admin', label: 'HR Admin', hint: 'Kelola karyawan, org, cuti; semua bisnis' },
+  { id: 'komisaris', label: 'Komisaris', hint: 'Melihat semua data; tidak dapat menyetujui; hanya menugaskan dan menetapkan KPI Direktur' },
   { id: 'manager', label: 'Manager', hint: 'Melihat tim sendiri, menyetujui pengajuan' },
+  { id: 'leader', label: 'Leader', hint: 'Hanya melihat karyawan di bawahnya; tanpa Setup Organisasi dan Kontrak & Dokumen' },
   { id: 'employee', label: 'Karyawan', hint: 'Data dan pengajuan sendiri' },
 ]
-const roleTone = { super_admin: 'red', hr_admin: 'purple', manager: 'blue', employee: 'gray' } as const
+const roleTone = { super_admin: 'red', hr_admin: 'purple', komisaris: 'purple', manager: 'blue', leader: 'blue', employee: 'gray' } as const
 const dt = (d: string) => new Date(d).toLocaleString('id-ID', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
 
 export default function Settings() {
   const { user, can } = useAuthStore()
   const isAdmin = ['super_admin', 'hr_admin'].includes(user?.role ?? '')
   const all: { id: Tab; label: string; perm?: string }[] = [
-    { id: 'users', label: 'User & Hak Akses', perm: 'users.manage' }, { id: 'roles', label: 'Role & Izin', perm: 'roles.manage' }, { id: 'drive', label: 'Google Drive', perm: 'drive.manage' }, { id: 'master', label: 'Master Data', perm: 'leave.admin' },
+    { id: 'users', label: 'User & Hak Akses', perm: 'users.manage' }, { id: 'roles', label: 'Role & Izin', perm: 'roles.manage' }, { id: 'leader', label: 'Akses Leader', perm: 'roles.manage' }, { id: 'drive', label: 'Google Drive', perm: 'drive.manage' }, { id: 'master', label: 'Master Data', perm: 'leave.admin' },
     { id: 'kpi', label: 'KPI', perm: 'kpi.settings' }, { id: 'workflow', label: 'Workflow Approval', perm: 'approval.admin' }, { id: 'audit', label: 'Audit Log', perm: 'audit.view' },
   ]
   const tabs = all.filter((t) => !t.perm || can(t.perm))
@@ -40,13 +43,16 @@ export default function Settings() {
       {!isAdmin ? <div className="card p-8 text-center text-sm text-muted">Halaman ini hanya untuk Super Admin dan HR Admin.</div> : (
         <div className="card p-4">
           <Tabs tabs={tabs.map(({ id, label }) => ({ id, label }))} value={tab} onChange={setTab} />
+          <ErrorBoundary resetKey={tab}>
           {tab === 'users' && <Users />}
           {tab === 'roles' && <RolesPanel />}
+          {tab === 'leader' && <LeaderPanel />}
           {tab === 'drive' && <DrivePanel result={params.get('drive')} />}
           {tab === 'master' && <LeaveTypes />}
           {tab === 'kpi' && <KpiPanel />}
           {tab === 'workflow' && <ApprovalFlowEditor />}
           {tab === 'audit' && <Audit />}
+          </ErrorBoundary>
         </div>
       )}
     </Layout>
@@ -69,14 +75,14 @@ function RolesPanel() {
   const groups = [...new Set(defs.map((d) => d.group))]
   return (
     <div className="mt-3 text-xs">
-      <p className="text-muted mb-3">Atur fitur apa yang boleh dipakai setiap role. <b>Super Admin</b> selalu memiliki semua izin. Cakupan data (bisnis dan karyawan yang terlihat) tetap mengikuti role: HR Admin melihat semua bisnis, Manager hanya tim sendiri, Karyawan data sendiri. Perubahan berlaku langsung tanpa login ulang.</p>
+      <p className="text-muted mb-3">Atur fitur apa yang boleh dipakai setiap role. <b>Super Admin</b> selalu memiliki semua izin. Cakupan data tetap mengikuti role: HR Admin dan Komisaris melihat semua bisnis, Manager dan Leader hanya tim sendiri, Karyawan data sendiri. Perubahan berlaku langsung tanpa login ulang.</p>
       {msg && <div className="bg-info-soft text-info rounded-lg px-3 py-2 mb-3">{msg}</div>}
       <div className="border border-line rounded-lg overflow-auto">
         <table className="w-full">
           <thead><tr><th className="th">Izin</th>{ROLES.map((r) => <th key={r.id} className="th text-center">{r.label}</th>)}</tr></thead>
           <tbody>
             {groups.map((g) => [
-              <tr key={g}><td colSpan={5} className="td bg-sunken font-bold text-[10.5px] uppercase tracking-wider text-muted">{g}</td></tr>,
+              <tr key={g}><td colSpan={ROLES.length + 1} className="td bg-sunken font-bold text-[10.5px] uppercase tracking-wider text-muted">{g}</td></tr>,
               ...defs.filter((d) => d.group === g).map((d) => (
                 <tr key={d.key}>
                   <td className="td"><b>{d.label}</b>{d.hint && <div className="text-muted text-[10.5px]">{d.hint}</div>}</td>
@@ -91,6 +97,38 @@ function RolesPanel() {
             </tr>
           </tbody>
         </table>
+      </div>
+    </div>
+  )
+}
+
+// Leader: sees only their own team and no org setup / contracts; what else they may do is switched here.
+const LEADER_KEYS: { key: string; label: string; hint: string }[] = [
+  { key: 'tasks.assign', label: 'Boleh memberi tugas ke bawahan', hint: 'Dimatikan: Leader hanya bisa membuat tugas untuk dirinya sendiri' },
+  { key: 'kpi.assign', label: 'Boleh menetapkan KPI bawahan', hint: 'Dimatikan: menu KPI Karyawan tetap terlihat, tetapi tanpa tombol Assign KPI' },
+  { key: 'approval.decide', label: 'Boleh menyetujui / menolak approval', hint: 'Dimatikan: Leader tidak lagi menerima pengajuan, dan alur approval melewatinya' },
+]
+function LeaderPanel() {
+  const [keys, setKeys] = useState<string[] | null>(null)
+  const [msg, setMsg] = useState('')
+  const load = () => getRolePermissions().then((r) => setKeys(r.data.roles.leader ?? []))
+  useEffect(() => { load() }, [])
+  if (!keys) return <p className="mt-3 text-xs text-muted">Memuat…</p>
+  const toggle = async (key: string) => {
+    const next = keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key]
+    try { await setRolePermissions('leader', next); setKeys(next); setMsg('Tersimpan — berlaku langsung') } catch (e: any) { setMsg(e.response?.data?.error ?? 'Gagal menyimpan') }
+  }
+  return (
+    <div className="mt-3 text-xs max-w-2xl space-y-3">
+      <p className="text-muted">Role <b className="text-ink">Leader</b> hanya melihat karyawan di bawahnya. Menu Setup Organisasi serta Kontrak &amp; Dokumen disembunyikan. Atur di sini apa yang boleh dilakukan Leader. Pengaturan lengkap per izin ada di tab Role &amp; Izin.</p>
+      {msg && <div className="bg-info-soft text-info rounded-lg px-3 py-2">{msg}</div>}
+      <div className="border border-line rounded-lg divide-y divide-line">
+        {LEADER_KEYS.map((k) => (
+          <label key={k.key} className="flex items-start gap-3 px-3 py-2.5 cursor-pointer">
+            <input type="checkbox" className="mt-0.5" checked={keys.includes(k.key)} onChange={() => toggle(k.key)} />
+            <span><b>{k.label}</b><span className="block text-muted text-[11px]">{k.hint}</span></span>
+          </label>
+        ))}
       </div>
     </div>
   )
@@ -169,18 +207,18 @@ function DrivePanel({ result }: { result: string | null }) {
 
 function Users() {
   const me = useAuthStore((s) => s.user)
-  const { businesses } = useBusinessStore()
+  const { businesses, businessId } = useBusinessStore()
   const [users, setUsers] = useState<AppUser[]>([])
   const [emps, setEmps] = useState<Employee[]>([])
   const [edit, setEdit] = useState<any>(null)
   const [error, setError] = useState('')
 
-  const load = () => { getUsers().then((r) => setUsers(r.data)); getEmployees({ page_size: 1000 }).then((r) => setEmps(r.data.data ?? [])) }
-  useEffect(load, [])
+  const load = () => { getUsers(bizParams(businessId)).then((r) => setUsers(r.data)); getEmployees({ page_size: 1000, ...bizParams(businessId) }).then((r) => setEmps(r.data.data ?? [])) }
+  useEffect(load, [businessId])
 
   const withoutAccount = emps.filter((e) => !users.some((u) => u.employee_id === e.id))
   const openNew = () => { setError(''); setEdit({ email: '', name: '', password: '', role: 'employee', employee_id: 0, business_ids: [] }) }
-  const openEdit = (u: AppUser) => { setError(''); setEdit({ id: u.id, email: u.email, name: u.name, password: '', role: u.role, is_active: u.is_active, business_ids: u.businesses.map((b) => b.id), self: u.id === me?.id }) }
+  const openEdit = (u: AppUser) => { setError(''); setEdit({ id: u.id, email: u.email, name: u.name, password: '', role: u.role, is_active: u.is_active, business_ids: (u.businesses ?? []).map((b) => b.id), self: u.id === me?.id }) }
 
   const pickEmployee = (id: number) => {
     const e = emps.find((x) => x.id === id)
@@ -201,7 +239,7 @@ function Users() {
   return (
     <>
       <DataTable data={users} rowKey={(u) => u.id} searchPlaceholder="Cari nama, NIK, email, role…"
-        searchText={(u) => `${u.name} ${u.email} ${u.role} ${u.employee_name} ${u.employee_nik ?? ''}`}
+        searchText={(u) => `${u.name ?? ''} ${u.email ?? ''} ${u.role ?? ''} ${u.employee_name ?? ''} ${u.employee_nik ?? ''}`}
         actions={<button className="btn-primary" onClick={openNew}><Plus className="w-3.5 h-3.5 inline mr-1" />User</button>}
         columns={[
           { head: 'Nama', render: (u) => <b>{u.name}</b> },
@@ -209,7 +247,7 @@ function Users() {
           { head: 'Email', render: (u) => u.email },
           { head: 'Role', render: (u) => <Badge tone={roleTone[u.role]}>{ROLES.find((r) => r.id === u.role)?.label}</Badge> },
           { head: 'Karyawan', render: (u) => u.employee_name || '-' },
-          { head: 'Akses Bisnis', render: (u) => ['super_admin', 'hr_admin'].includes(u.role) ? <span className="text-muted">Semua bisnis</span> : u.businesses.map((b) => b.code).join(', ') || '-' },
+          { head: 'Akses Bisnis', render: (u) => ['super_admin', 'hr_admin'].includes(u.role) ? <span className="text-muted">Semua bisnis</span> : (u.businesses ?? []).map((b) => b.code).join(', ') || '-' },
           { head: 'Status', render: (u) => u.is_active ? <Badge tone="green">Aktif</Badge> : <Badge>Nonaktif</Badge> },
           { head: 'Aksi', render: (u) => <button className="btn" onClick={() => openEdit(u)}>Edit</button> },
         ]} />
@@ -230,7 +268,7 @@ function Users() {
               <select className="input w-full mt-1" disabled={edit.self} value={edit.role} onChange={(e) => setEdit({ ...edit, role: e.target.value })}>{ROLES.map((r) => <option key={r.id} value={r.id}>{r.label} — {r.hint}</option>)}</select></label>
             {groupLevel ? <p className="text-muted">Role ini otomatis dapat mengakses semua bisnis.</p> : (
               <div><div className="font-semibold mb-1">Akses bisnis</div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">{businesses.map((b) => <label key={b.id} className="flex items-center gap-2"><input type="checkbox" checked={edit.business_ids.includes(b.id)} onChange={() => toggleBiz(b.id)} />{b.name}</label>)}</div></div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">{businesses.filter((b) => !businessId || b.id === businessId || edit.business_ids.includes(b.id)).map((b) => <label key={b.id} className="flex items-center gap-2"><input type="checkbox" checked={edit.business_ids.includes(b.id)} onChange={() => toggleBiz(b.id)} />{b.name}</label>)}</div></div>
             )}
             {edit.id && <label className="flex items-center gap-2 font-semibold"><input type="checkbox" disabled={edit.self} checked={edit.is_active} onChange={(e) => setEdit({ ...edit, is_active: e.target.checked })} />Akun aktif</label>}
             {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}

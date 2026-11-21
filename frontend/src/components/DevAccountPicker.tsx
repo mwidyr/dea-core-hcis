@@ -3,9 +3,9 @@ import { Search } from 'lucide-react'
 import { getDevAccounts } from '../services/api'
 import type { DevAccount, User } from '../types'
 
-export const ROLE_LABEL: Record<User['role'], string> = { super_admin: 'Super Admin', hr_admin: 'HR Admin', manager: 'Manager', employee: 'Karyawan' }
-const ROLE_ORDER: User['role'][] = ['super_admin', 'hr_admin', 'manager', 'employee']
-const TONE: Record<User['role'], string> = { super_admin: 'bg-danger-soft text-danger', hr_admin: 'bg-violet-soft text-violet', manager: 'bg-info-soft text-info', employee: 'bg-tint text-ink/80' }
+export const ROLE_LABEL: Record<User['role'], string> = { super_admin: 'Super Admin', hr_admin: 'HR Admin', komisaris: 'Komisaris', manager: 'Manager', leader: 'Leader', employee: 'Karyawan' }
+const ROLE_ORDER: User['role'][] = ['super_admin', 'hr_admin', 'komisaris', 'manager', 'leader', 'employee']
+const TONE: Record<User['role'], string> = { super_admin: 'bg-danger-soft text-danger', hr_admin: 'bg-violet-soft text-violet', komisaris: 'bg-violet-soft text-violet', manager: 'bg-info-soft text-info', leader: 'bg-info-soft text-info', employee: 'bg-tint text-ink/80' }
 const initials = (n: string) => n.split(/\s+/).slice(0, 2).map((x) => x[0]).join('').toUpperCase()
 
 // Loads the quick-login accounts. Resolves to null when the backend does not offer them (DEV_LOGIN off) —

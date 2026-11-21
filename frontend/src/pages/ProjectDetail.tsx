@@ -1,7 +1,7 @@
 import { useThemeColors } from '../utils/theme'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { ArrowLeft, ChevronDown, ChevronUp, Plus } from 'lucide-react'
 import Layout from '../components/Layout/Layout'
 import Badge from '../components/ui/Badge'
@@ -68,7 +68,7 @@ export default function ProjectDetail() {
         <Tabs tabs={[{ id: 'wbs', label: 'WBS & Bobot' }, { id: 'gantt', label: 'Gantt' }, { id: 'curve', label: 'Kurva-S' }, { id: 'tasks', label: `Tugas (${tasks.length})` }, { id: 'docs', label: 'Dokumen' }]} value={tab} onChange={setTab} />
         {tab === 'wbs' && <Wbs project={p} tasks={tasks} onOpen={setOpenId} onChanged={load} />}
         {tab === 'gantt' && <TaskGantt tasks={tasks} onOpen={setOpenId} />}
-        {tab === 'curve' && <Curve project={p} refreshKey={tasks.map((t) => `${t.id}:${t.status}:${t.weight}`).join()} />}
+        {tab === 'curve' && <Curve project={p} tasks={tasks} refreshKey={tasks.map((t) => `${t.id}:${t.status}:${t.weight}`).join()} />}
         {tab === 'tasks' && <TaskList tasks={tasks} onOpen={setOpenId} groupBy="none" />}
         {tab === 'docs' && <Docs project={p} />}
       </div>
@@ -133,7 +133,23 @@ function Wbs({ project, tasks, onOpen, onChanged }: { project: Project; tasks: T
 }
 
 // ---- Kurva-S
-function Curve({ project, refreshKey }: { project: Project; refreshKey: string }) {
+// plan % of a task today: the share of its schedule already elapsed (a parent: the average of its children, by bobot when all have one)
+function planToday(n: ReturnType<typeof buildTree>[number], today: string): number {
+  if (n.children.length) {
+    const ws = n.children.map((c) => c.task.weight ?? 0)
+    const useW = ws.every((w) => w > 0)
+    const tot = useW ? ws.reduce((a, b) => a + b, 0) : n.children.length
+    return n.children.reduce((a, c, i) => a + planToday(c, today) * (useW ? ws[i] : 1), 0) / tot
+  }
+  const s = (n.task.start_date ?? n.task.due_date)?.slice(0, 10), e = (n.task.due_date ?? n.task.start_date)?.slice(0, 10)
+  if (!s || !e) return 0
+  if (today < s) return 0
+  if (today >= e) return 100
+  const span = (new Date(e).getTime() - new Date(s).getTime()) / 864e5 + 1
+  return Math.min(100, Math.max(0, (((new Date(today).getTime() - new Date(s).getTime()) / 864e5 + 1) / span) * 100))
+}
+
+function Curve({ project, tasks, refreshKey }: { project: Project; tasks: TaskRow[]; refreshKey: string }) {
   const tc = useThemeColors()
   const [data, setData] = useState<{ ok: boolean; points: CurvePoint[]; progress: number; plan_now: number; actual_now: number; deviation: number } | null>(null)
   useEffect(() => { getProjectCurve(project.id).then((r) => setData(r.data)) }, [project.id, refreshKey])
@@ -142,6 +158,13 @@ function Curve({ project, refreshKey }: { project: Project; refreshKey: string }
   const chart = data.points.map((p) => ({ ...p, label: new Date(p.date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }) }))
   const todayLabel = chart.find((p) => p.date >= ymd(new Date()))?.label
   const dev = data.deviation
+  const todayK = ymd(new Date())
+  const tree = buildTree(tasks)
+  const byId = new Map<number, ReturnType<typeof buildTree>[number]>()
+  const index = (ns: ReturnType<typeof buildTree>) => ns.forEach((n) => { byId.set(n.task.id, n); index(n.children) })
+  index(tree)
+  const rows = flatten(tree, new Set())
+  const devData = chart.filter((p) => p.actual !== null).map((p) => ({ label: p.label, dev: Math.round(((p.actual as number) - p.plan) * 10) / 10 }))
   return (
     <div className="text-xs">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
@@ -150,6 +173,25 @@ function Curve({ project, refreshKey }: { project: Project; refreshKey: string }
         <StatCard label="Deviasi" value={<span className={dev < -0.05 ? 'text-danger' : dev > 0.05 ? 'text-ok' : ''}>{dev > 0 ? '+' : ''}{Math.round(dev * 10) / 10}%</span>} foot={dev < -0.05 ? 'tertinggal dari rencana' : dev > 0.05 ? 'lebih cepat dari rencana' : 'sesuai rencana'} />
         <StatCard label="Progres proyek" value={`${data.progress}%`} foot={project.weighted ? 'berbobot' : 'rata-rata'} />
       </div>
+      <div className="grid lg:grid-cols-[330px_1fr] gap-3 items-start">
+      <div className="border border-line rounded-lg overflow-hidden">
+        <div className="px-3 py-2 bg-sunken font-bold text-[10.5px] uppercase tracking-wider text-muted flex justify-between"><span>Tugas &amp; sub tugas</span><span>Rencana · Aktual · Dev</span></div>
+        <div className="max-h-[560px] overflow-auto divide-y divide-line/60">
+          {rows.map(({ task: t, depth }) => {
+            const node = byId.get(t.id)!
+            const plan = Math.round(planToday(node, todayK)), act = Math.round(t.progress), d = act - plan
+            return (
+              <div key={t.id} className="flex items-center gap-1.5 px-2 py-1.5 hover:bg-sunken" style={{ paddingLeft: 8 + depth * 14 }}>
+                <span className={`flex-1 min-w-0 truncate ${node.children.length ? 'font-bold' : ''}`} title={t.title}>{t.title}</span>
+                <span className="w-9 text-right text-muted">{plan}%</span><span className="w-9 text-right">{act}%</span>
+                <span className={`w-10 text-right font-bold ${d < -0.5 ? 'text-danger' : d > 0.5 ? 'text-ok' : 'text-muted'}`}>{d > 0 ? '+' : ''}{d}</span>
+              </div>
+            )
+          })}
+          {!rows.length && <div className="px-3 py-6 text-center text-muted">Belum ada tugas</div>}
+        </div>
+      </div>
+      <div className="space-y-3 min-w-0">
       <div className="h-[340px] border border-line rounded-lg p-3">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chart} margin={{ top: 10, right: 20, bottom: 0, left: 0 }}>
@@ -162,6 +204,23 @@ function Curve({ project, refreshKey }: { project: Project; refreshKey: string }
             <Line type="monotone" dataKey="actual" name="Aktual" stroke={tc.ok} strokeWidth={2.5} dot={{ r: 3 }} connectNulls={false} />
           </LineChart>
         </ResponsiveContainer>
+      </div>
+      <div className="border border-line rounded-lg p-3">
+        <div className="font-bold mb-1">Deviasi (aktual − rencana)</div>
+        <div className="h-[150px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={devData} margin={{ top: 5, right: 20, bottom: 0, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={tc.line} />
+              <XAxis dataKey="label" tick={{ fontSize: 10, fill: tc.muted }} /><YAxis unit="%" tick={{ fontSize: 10, fill: tc.muted }} />
+              <Tooltip formatter={(v: number | string) => `${Number(v) > 0 ? '+' : ''}${v}%`} contentStyle={{ background: tc.panel, borderColor: tc.line, color: tc.ink }} />
+              <ReferenceLine y={0} stroke={tc.muted} />
+              <Bar dataKey="dev" name="Deviasi">{devData.map((d, i) => <Cell key={i} fill={d.dev < 0 ? tc.danger : tc.ok} />)}</Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <p className="text-muted mt-1">Merah = tertinggal dari rencana, hijau = lebih cepat. Kolom Dev di daftar kiri adalah deviasi tiap tugas hari ini.</p>
+      </div>
+      </div>
       </div>
       <p className="text-muted mt-2">Rencana: porsi setiap pekerjaan terbagi merata sepanjang jadwalnya (mulai–deadline). Aktual: porsi pekerjaan dihitung sejak hari ia selesai (setelah disetujui bila perlu approval). Porsi tiap tahapan mengikuti bobotnya.</p>
     </div>

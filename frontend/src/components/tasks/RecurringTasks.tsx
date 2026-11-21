@@ -56,6 +56,7 @@ function RecurringForm({ initial, onClose, onSaved }: { initial: Partial<Recurri
     start_date: initial.start_date?.slice(0, 10) ?? '', end_date: initial.end_date?.slice(0, 10) ?? '', kpi_title: initial.kpi_title ?? '',
     require_result: initial.require_result ?? false, requires_approval: initial.requires_approval ?? true, approval_levels: initial.approval_levels ?? 1,
     approver_user_id: initial.approver_user_id ?? 0, active: initial.active ?? true,
+    plan_start_time: initial.plan_start_time ?? '', plan_end_time: initial.plan_end_time ?? '',
   })
   const [assignees, setAssignees] = useState<Assignee[]>([])
   const [approvers, setApprovers] = useState<Person[]>([])
@@ -100,6 +101,7 @@ function RecurringForm({ initial, onClose, onSaved }: { initial: Partial<Recurri
           {f.frequency === 'weekly' && <L label="Setiap hari"><select className="input w-full" value={f.weekday} onChange={(e) => set('weekday', Number(e.target.value))}>{DAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}</select></L>}
           {f.frequency === 'monthly' && <L label="Setiap tanggal"><select className="input w-full" value={f.day_of_month} onChange={(e) => set('day_of_month', Number(e.target.value))}><option value={0}>Akhir bulan</option>{Array.from({ length: 28 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1}</option>)}</select></L>}
           <L label="Deadline" hint="(hari setelah tugas dibuat)"><input className="input w-full" type="number" min={0} max={90} value={f.due_after_days} onChange={(e) => set('due_after_days', Number(e.target.value))} /></L>
+          <L label="Jam rencana" hint="(opsional — mulai dan selesai tiap kemunculan; jam aktual dicatat dari Mulai / Pause / Selesai di Aktivitas)"><div className="flex items-center gap-2"><input type="time" className="input" aria-label="Jam mulai rencana" value={f.plan_start_time} onChange={(e) => set('plan_start_time', e.target.value)} /><span>–</span><input type="time" className="input" aria-label="Jam selesai rencana" value={f.plan_end_time} onChange={(e) => set('plan_end_time', e.target.value)} /></div></L>
           <L label="Mulai *"><DateField value={f.start_date} min={editing ? undefined : ymd(new Date())} businessId={pic?.business_id} onChange={(v) => set('start_date', v)} /></L>
           <L label="Berakhir" hint="(opsional)"><DateField value={f.end_date} min={f.start_date || undefined} businessId={pic?.business_id} onChange={(v) => set('end_date', v)} /></L>
         </div>

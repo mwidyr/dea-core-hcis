@@ -3,12 +3,15 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { LogOut, Menu, MoreVertical, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react'
 import { navGroups } from './nav'
 import { useAuthStore } from '../../store/auth'
-import { useBusinessStore } from '../../store/business'
-import { getApprovalCount, getMe } from '../../services/api'
+import { bizParams, useBusinessStore } from '../../store/business'
+import { deleteMyAvatar, getApprovalCount, getMe, uploadMyAvatar } from '../../services/api'
+import Avatar from '../ui/Avatar'
+import Modal from '../ui/Modal'
 import BrandLogo from '../BrandLogo'
 import BrandWordmark from '../BrandWordmark'
 import ThemeToggle from '../ThemeToggle'
 import NotificationBell from './NotificationBell'
+import WorkingPill from './WorkingPill'
 
 export default function Layout({ title, subtitle, actions, children }: { title: string; subtitle?: string; actions?: React.ReactNode; children: React.ReactNode }) {
   const { user, logout, can, token, setAuth } = useAuthStore()
@@ -22,17 +25,25 @@ export default function Layout({ title, subtitle, actions, children }: { title: 
   const toggle = () => setCollapsed((c) => { try { localStorage.setItem('sidebar_collapsed', c ? '0' : '1') } catch { /* ignore */ } return !c })
   const [drawer, setDrawer] = useState(false)
   const [menu, setMenu] = useState(false) // header overflow menu on small screens
+  const [profile, setProfile] = useState(false)
+  const [avMsg, setAvMsg] = useState('')
+  const refreshMe = () => getMe().then((r) => token && setAuth({ ...r.data }, token)).catch(() => {})
+  const pickAvatar = async (f?: File) => {
+    if (!f) return
+    setAvMsg('')
+    try { await uploadMyAvatar(f); await refreshMe(); setAvMsg('Foto tersimpan') } catch (e: any) { setAvMsg(e.response?.data?.error ?? 'Gagal mengunggah foto') }
+  }
 
   useEffect(() => { refresh() }, [])
   // permissions can change while someone is logged in (Settings → Role & Izin): pick up the latest on every page load
   useEffect(() => { getMe().then((r) => token && setAuth({ ...r.data }, token)).catch(() => {}) }, [])
   // pending-approval badge on the sidebar, refreshed every minute
   useEffect(() => {
-    const load = () => getApprovalCount().then((r) => setInbox(r.data.inbox)).catch(() => {})
+    const load = () => getApprovalCount(bizParams(businessId)).then((r) => setInbox(r.data.inbox)).catch(() => {})
     load()
     const t = setInterval(load, 60000)
     return () => clearInterval(t)
-  }, [])
+  }, [businessId])
   useEffect(() => { setDrawer(false); setMenu(false) }, [pathname])
   useEffect(() => {
     if (!drawer) return
@@ -74,7 +85,7 @@ export default function Layout({ title, subtitle, actions, children }: { title: 
         {navGroups.map((g) => (
           <div key={g.title} className={slim ? 'mb-3.5 lg:mb-2 lg:pb-2 lg:border-b lg:border-line/60 lg:last:border-0' : 'mb-3.5'}>
             <div className={`text-[10.5px] tracking-[.12em] uppercase text-muted/80 font-extrabold px-2.5 pb-1.5 ${slim ? 'lg:hidden' : ''}`}>{g.title}</div>
-            {g.items.filter((i) => !i.perm || can(i.perm)).map((i) => (
+            {g.items.filter((i) => (!i.perm || can(i.perm)) && !i.hideRoles?.includes(user?.role ?? '') && !(i.needsAttendance && user?.no_attendance)).map((i) => (
               <NavLink key={i.to} to={i.to} end={i.to === '/'} title={slim ? i.label : undefined}
                 className={({ isActive }) => `relative flex items-center rounded-[9px] text-[13px] gap-2.5 px-2.5 py-2.5 lg:py-2 ${slim ? 'lg:justify-center lg:h-9 lg:mb-0.5 lg:px-0 lg:py-0' : ''} ${isActive ? 'bg-brand-soft text-brand font-bold' : 'text-ink/75 hover:bg-sunken hover:text-brand'}`}>
                 <i.icon className={`w-4 h-4 shrink-0 ${slim ? 'lg:w-[18px] lg:h-[18px]' : ''}`} />
@@ -97,10 +108,14 @@ export default function Layout({ title, subtitle, actions, children }: { title: 
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <div className="hidden sm:flex items-center gap-2">{actions}</div>
+            <WorkingPill />
             <NotificationBell />
             <div className="hidden md:block">{bizSelect}</div>
             <ThemeToggle className="hidden md:inline-flex" />
-            <div className="hidden md:block text-right leading-tight px-2 max-w-[160px]"><div className="text-xs font-bold truncate">{user?.name}</div><div className="text-[10px] text-muted">{user?.role}</div></div>
+            <button type="button" onClick={() => { setAvMsg(''); setProfile(true) }} title="Foto profil" className="hidden md:flex items-center gap-2 px-2 rounded-lg hover:bg-sunken text-right leading-tight max-w-[200px]">
+              <span className="min-w-0"><span className="block text-xs font-bold truncate">{user?.name}</span><span className="block text-[10px] text-muted">{user?.role}</span></span>
+              <Avatar empId={user?.employee_id} name={user?.name ?? ''} version={user?.avatar} size={30} />
+            </button>
             <button className="btn hidden md:inline-flex" title="Keluar" aria-label="Keluar" onClick={doLogout}><LogOut className="w-3.5 h-3.5" /></button>
             <div className="relative md:hidden">
               <button className="btn !px-2.5" onClick={() => setMenu((m) => !m)} aria-label="Menu akun" aria-expanded={menu}><MoreVertical className="w-4 h-4" /></button>
@@ -115,6 +130,18 @@ export default function Layout({ title, subtitle, actions, children }: { title: 
           </div>
         </header>
         {actions && <div className="sm:hidden flex flex-wrap gap-2 px-3 pt-3">{actions}</div>}
+        <Modal open={profile} onClose={() => setProfile(false)} title="Foto profil">
+          <div className="text-xs space-y-3">
+            <div className="flex items-center gap-4">
+              <Avatar empId={user?.employee_id} name={user?.name ?? ''} version={user?.avatar} size={72} />
+              <div><div className="font-bold text-sm">{user?.name}</div><div className="text-muted">{user?.email}</div></div>
+            </div>
+            {!user?.employee_id && <p className="text-muted">Akun ini belum terhubung ke data karyawan, jadi foto belum tampil di board tugas.</p>}
+            <label className="block font-semibold">Unggah foto baru<input type="file" accept="image/jpeg,image/png,image/webp" className="input w-full mt-1 file:mr-2 file:border-0 file:bg-tint file:rounded file:px-2 file:py-1" onChange={(e) => { pickAvatar(e.target.files?.[0]); e.target.value = '' }} /><span className="font-normal text-muted">JPG, PNG, atau WEBP, maksimal 2 MB. Foto tampil di board dan daftar tugas.</span></label>
+            {avMsg && <div className="bg-info-soft text-info rounded-lg px-3 py-2">{avMsg}</div>}
+            <div className="flex justify-end gap-2">{user?.has_avatar && <button className="btn" onClick={async () => { await deleteMyAvatar(); await refreshMe(); setAvMsg('Foto dihapus') }}>Hapus foto</button>}<button className="btn-primary" onClick={() => setProfile(false)}>Selesai</button></div>
+          </div>
+        </Modal>
         <main className="p-3 sm:p-[18px]">{children}</main>
       </div>
     </div>

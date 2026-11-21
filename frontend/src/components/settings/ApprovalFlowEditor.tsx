@@ -4,6 +4,7 @@ import Badge from '../ui/Badge'
 import Modal from '../ui/Modal'
 import { deleteApprovalFlow, getApprovalFlows, getBusinesses, getPositions, saveApprovalFlow } from '../../services/api'
 import { errMsg } from '../../utils/format'
+import { bizParams, useBusinessStore } from '../../store/business'
 import type { ApprovalFlow, Business, FlowStep, FlowType, Position } from '../../types'
 
 const KINDS: { id: FlowStep['kind']; label: string }[] = [
@@ -17,6 +18,7 @@ const empty = (type: string): ApprovalFlow => ({ name: '', request_type: type, b
 
 // Editor of sequential approval flows per request type (HR admin / super admin).
 export default function ApprovalFlowEditor() {
+  const { businessId } = useBusinessStore()
   const [flows, setFlows] = useState<ApprovalFlow[]>([])
   const [types, setTypes] = useState<FlowType[]>([])
   const [positions, setPositions] = useState<Position[]>([])
@@ -26,12 +28,12 @@ export default function ApprovalFlowEditor() {
   const [loadErr, setLoadErr] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const load = () => getApprovalFlows().then((r) => { setFlows(r.data.data); setTypes(r.data.types); setLoadErr('') }).catch((e) => setLoadErr(errMsg(e, 'Gagal memuat flow approval')))
+  const load = () => getApprovalFlows(bizParams(businessId)).then((r) => { setFlows(r.data.data); setTypes(r.data.types); setLoadErr('') }).catch((e) => setLoadErr(errMsg(e, 'Gagal memuat flow approval')))
   useEffect(() => {
     load()
-    getPositions().then((r) => setPositions(r.data)).catch(() => setPositions([]))
+    getPositions(bizParams(businessId)).then((r) => setPositions(r.data)).catch(() => setPositions([]))
     getBusinesses().then((r) => setBusinesses(r.data)).catch(() => setBusinesses([]))
-  }, [])
+  }, [businessId])
 
   const bizCode = (id: number) => businesses.find((b) => b.id === id)?.code ?? ''
   const posLabel = (id: number | null) => { const p = positions.find((x) => x.id === id); return p ? `${p.title}${bizCode(p.business_id) ? ` (${bizCode(p.business_id)})` : ''}` : '—' }
@@ -111,7 +113,7 @@ export default function ApprovalFlowEditor() {
               <label className="block font-semibold">Jenis pengajuan
                 <select className="input w-full mt-1" value={edit.request_type} onChange={(e) => set({ request_type: e.target.value })}>{types.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}</select></label>
               <label className="block font-semibold">Bisnis<select className="input w-full mt-1" value={edit.business_id ?? ''} onChange={(e) => set({ business_id: e.target.value ? Number(e.target.value) : null })}>
-                <option value="">Semua bisnis</option>{businesses.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
+                <option value="">Semua bisnis</option>{businesses.filter((b) => !businessId || b.id === businessId || edit.business_id === b.id).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
               <label className="flex items-center gap-2 font-semibold self-end pb-2"><input type="checkbox" checked={edit.is_active} onChange={(e) => set({ is_active: e.target.checked })} />Aktif</label>
             </div>
 

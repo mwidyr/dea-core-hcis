@@ -3,10 +3,13 @@ import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Flame } from 'lucide
 import Badge from '../ui/Badge'
 import Pagination, { rowsPerPage } from '../ui/Pagination'
 import ProgressBar from '../ui/ProgressBar'
-import { setTaskStatus } from '../../services/api'
+import Avatar from '../ui/Avatar'
+import { getHolidays, setTaskStatus } from '../../services/api'
+import { bizParams, useBusinessStore } from '../../store/business'
 import type { TaskRow, TaskStatus } from '../../types'
 import { cssColor } from '../../utils/theme'
-import { STATUS_BAR, STATUS_LABEL, STATUS_TONE, TIMELINESS_LABEL, TIMELINESS_TONE, doneClass, buildTree, dateOf, dayDiff, flatten, fmt, initials, ymd, err } from './taskUtils'
+import { STATUS_BAR, STATUS_LABEL, STATUS_TONE, TIMELINESS_LABEL, TIMELINESS_TONE, doneClass, buildTree, type TreeNode, dateOf, dayDiff, flatten, fmt, fmtShort, initials, ymd, err } from './taskUtils'
+const fmtDT = (s: string) => new Date(s).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
 
 export type GroupBy = 'none' | 'unit' | 'project' | 'pic' | 'status'
 interface ViewProps { tasks: TaskRow[]; onOpen: (id: number) => void }
@@ -23,7 +26,16 @@ const groupKey = (t: TaskRow, g: GroupBy, level = 3) => (g === 'unit' ? unitAtLe
 export function TaskList({ tasks, onOpen, groupBy, unitLevel = 3 }: ViewProps & { groupBy: GroupBy; unitLevel?: number }) {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
-  const sorted = useMemo(() => (groupBy === 'none' ? tasks : [...tasks].sort((a, b) => groupKey(a, groupBy, unitLevel).localeCompare(groupKey(b, groupBy, unitLevel)))), [tasks, groupBy, unitLevel])
+  // children stay directly under their own parent (tree order inside each group); a child whose parent is filtered out shows as its own root
+  const flat = useMemo(() => {
+    const groups = new Map<string, TaskRow[]>()
+    tasks.forEach((t) => { const k = groupKey(t, groupBy, unitLevel); groups.set(k, [...(groups.get(k) ?? []), t]) })
+    const keys = [...groups.keys()]
+    if (groupBy !== 'none') keys.sort((a, b) => a.localeCompare(b))
+    return keys.flatMap((k) => flatten(buildTree(groups.get(k)!), new Set()))
+  }, [tasks, groupBy, unitLevel])
+  const sorted = useMemo(() => flat.map((f) => f.task), [flat])
+  const indent = useMemo(() => new Map(flat.map((f) => [f.task.id, f.depth])), [flat])
   useEffect(() => setPage(1), [tasks, groupBy, unitLevel, pageSize])
   const per = rowsPerPage(pageSize, sorted.length)
   const last = Math.max(1, Math.ceil(sorted.length / per))
@@ -34,22 +46,29 @@ export function TaskList({ tasks, onOpen, groupBy, unitLevel = 3 }: ViewProps & 
     <div>
       <div className="border border-line rounded-lg overflow-auto">
         <table className="w-full">
-          <thead><tr>{['Tugas', 'PIC', 'Proyek', 'Deadline', 'Ketepatan', 'Status', 'Progres'].map((h) => <th key={h} className="th">{h}</th>)}</tr></thead>
+          <thead><tr>{['Tugas', 'PIC', 'Departemen', 'Proyek', 'Plan', 'Aktual', 'Ketepatan', 'Status', 'Progres'].map((h) => <th key={h} className="th">{h}</th>)}</tr></thead>
           <tbody>
             {rows.map((t, i) => {
               const g = groupKey(t, groupBy, unitLevel)
               const header = groupBy !== 'none' && (i === 0 || groupKey(rows[i - 1], groupBy, unitLevel) !== g)
               return (
                 <Fragment key={t.id}>
-                  {header && <tr><td colSpan={7} className="px-3 py-1.5 bg-tint text-[11px] font-bold">{g} <span className="font-normal text-muted">· {counts.get(g)} tugas</span></td></tr>}
+                  {header && <tr><td colSpan={9} className="px-3 py-1.5 bg-tint text-[11px] font-bold">{g} <span className="font-normal text-muted">· {counts.get(g)} tugas</span></td></tr>}
                   <tr className="cursor-pointer hover:bg-sunken" onClick={() => onOpen(t.id)}>
-                    <td className="td" style={{ paddingLeft: 12 + (t.depth - 1) * 14 }}>
+                    <td className="td" style={{ paddingLeft: 12 + (indent.get(t.id) ?? 0) * 14 }}>
                       <div className="flex items-center gap-1.5">{t.priority === 'tinggi' && <Flame className="w-3.5 h-3.5 text-danger shrink-0" />}<b className={doneClass(t)}>{t.title}</b>{t.is_parent && <Badge tone="purple">{t.kids_done}/{t.kids_total}</Badge>}</div>
                       {t.parent_title && <div className="text-muted text-[10.5px]">↳ {t.parent_title}</div>}
                     </td>
-                    <td className="td"><div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-full bg-brand-soft text-brand text-[9px] font-bold grid place-items-center shrink-0">{initials(t.pic_name)}</span><span className="whitespace-nowrap">{t.pic_name}</span></div></td>
+                    <td className="td"><div className="flex items-center gap-1.5"><Avatar empId={t.pic_id} name={t.pic_name} version={t.pic_avatar} size={20} /><span className="whitespace-nowrap">{t.pic_name}</span></div></td>
+                    <td className="td text-muted">{t.unit_name || '–'}</td>
                     <td className="td text-muted">{t.project_name || '–'}</td>
-                    <td className={`td whitespace-nowrap ${t.overdue ? 'text-danger font-bold' : ''}`}>{fmt(t.due_date)}</td>
+                    <td className={`td whitespace-nowrap text-[11.5px] ${t.overdue ? 'text-danger' : ''}`}>
+                      <div>{fmtShort(t.start_date)}{t.plan_start_time ? ` ${t.plan_start_time}` : ''}</div>
+                      <div className={t.overdue ? 'font-bold' : 'text-muted'}>→ {fmtShort(t.due_date)}{t.plan_end_time ? ` ${t.plan_end_time}` : ''}</div>
+                    </td>
+                    <td className="td whitespace-nowrap text-[11.5px]">
+                      {t.actual_start ? <><div>{fmtDT(t.actual_start)}</div><div className="text-muted">→ {t.completed_at ? fmtDT(t.completed_at) : 'berjalan'}</div></> : <span className="text-muted">–</span>}
+                    </td>
                     <td className="td">{t.timeliness ? <Badge tone={TIMELINESS_TONE[t.timeliness]}>{TIMELINESS_LABEL[t.timeliness]}</Badge> : <span className="text-muted">–</span>}</td>
                     <td className="td"><Badge tone={STATUS_TONE[t.status]}>{STATUS_LABEL[t.status]}</Badge></td>
                     <td className="td w-40"><ProgressBar value={t.progress} small /></td>
@@ -57,7 +76,7 @@ export function TaskList({ tasks, onOpen, groupBy, unitLevel = 3 }: ViewProps & 
                 </Fragment>
               )
             })}
-            {!rows.length && <tr><td className="td text-center text-muted" colSpan={7}>Tidak ada tugas</td></tr>}
+            {!rows.length && <tr><td className="td text-center text-muted" colSpan={9}>Tidak ada tugas</td></tr>}
           </tbody>
         </table>
       </div>
@@ -99,7 +118,7 @@ export function TaskBoard({ tasks, onOpen, onChanged }: ViewProps & { onChanged:
                     {(t.project_name || t.parent_title) && <div className="text-[10.5px] text-muted mt-0.5 truncate">{t.project_name}{t.project_name && t.parent_title ? ' · ' : ''}{t.parent_title && `↳ ${t.parent_title}`}</div>}
                     {t.is_parent && <div className="mt-1.5"><ProgressBar value={t.progress} small /><div className="text-[10px] text-muted mt-0.5">{t.kids_done}/{t.kids_total} sub tugas</div></div>}
                     <div className="flex items-center justify-between mt-2">
-                      <span className="flex items-center gap-1"><span className="w-5 h-5 rounded-full bg-brand-soft text-brand text-[9px] font-bold grid place-items-center">{initials(t.pic_name)}</span><span className="text-[10.5px] text-muted">{t.pic_name.split(' ')[0]}</span></span>
+                      <span className="flex items-center gap-1"><Avatar empId={t.pic_id} name={t.pic_name} version={t.pic_avatar} size={22} /><span className="text-[10.5px] text-muted">{t.pic_name.split(' ')[0]}</span></span>
                       <span className={`text-[10.5px] ${t.overdue ? 'text-danger font-bold' : 'text-muted'}`}>{t.due_date ? fmt(t.due_date) : ''}</span>
                     </div>
                   </div>
@@ -121,6 +140,12 @@ export function TaskCalendar({ tasks, onOpen }: ViewProps) {
   const now = new Date()
   const [view, setView] = useState({ y: now.getFullYear(), m: now.getMonth() })
   const [more, setMore] = useState<string | null>(null)
+  const { businessId } = useBusinessStore()
+  const [holidays, setHolidays] = useState<Map<string, string[]>>(new Map())
+  // holidays appear on the calendar like tasks, for the business being viewed
+  useEffect(() => {
+    getHolidays({ year: view.y, ...bizParams(businessId) }).then((r) => { const m = new Map<string, string[]>(); r.data.data.forEach((h) => { const k = h.date.slice(0, 10); m.set(k, [...(m.get(k) ?? []), h.name]) }); setHolidays(m) }).catch(() => setHolidays(new Map()))
+  }, [view.y, businessId])
   const shift = (d: number) => setView(({ y, m }) => { const t = m + d; return { y: y + Math.floor(t / 12), m: ((t % 12) + 12) % 12 } })
   const lead = (new Date(view.y, view.m, 1).getDay() + 6) % 7
   const days = new Date(view.y, view.m + 1, 0).getDate()
@@ -142,10 +167,12 @@ export function TaskCalendar({ tasks, onOpen }: ViewProps) {
           const k = `${view.y}-${String(view.m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
           const list = onDay(k)
           const shown = more === k ? list : list.slice(0, 3)
+          const hol = holidays.get(k) ?? []
           return (
-            <div key={k} className={`bg-panel min-h-[96px] p-1 ${k === todayK ? 'ring-2 ring-inset ring-brand/40' : ''}`}>
-              <div className={`text-[10.5px] font-bold mb-0.5 ${i % 7 >= 5 ? 'text-danger/70' : 'text-muted'}`}>{d}</div>
+            <div key={k} className={`min-h-[96px] p-1 ${hol.length ? 'bg-danger-soft/40' : 'bg-panel'} ${k === todayK ? 'ring-2 ring-inset ring-brand/40' : ''}`}>
+              <div className={`text-[10.5px] font-bold mb-0.5 ${i % 7 >= 5 || hol.length ? 'text-danger/80' : 'text-muted'}`}>{d}</div>
               <div className="space-y-0.5">
+                {hol.map((n) => <div key={n} title={`Libur: ${n}`} className="text-[10px] leading-tight px-1 py-0.5 rounded truncate bg-danger-soft text-danger font-semibold">Libur · {n}</div>)}
                 {shown.map((t) => (
                   <button key={t.id} onClick={() => onOpen(t.id)} title={`${t.title} — ${t.pic_name}`}
                     className="w-full text-left text-[10px] leading-tight px-1 py-0.5 rounded truncate text-white" style={{ background: t.overdue ? cssColor('danger') : STATUS_BAR[t.status] }}>{t.title}</button>
@@ -162,12 +189,42 @@ export function TaskCalendar({ tasks, onOpen }: ViewProps) {
 }
 
 // ------------------------------------------------------------------ Gantt
+// Plan = grey bar over its date range. Actual = coloured bar from the day work really started until it finished (or today while running).
+// Colour follows priority (tinggi red, normal amber); a parent is blue.
+const GANTT_COLOR = { tinggi: '#dc2626', normal: '#f59e0b', parent: '#2563eb' } as const
+const GANTT_PLAN_BG = '#e2e8f0', GANTT_PLAN_LINE = '#cbd5e1'
+const localDay = (iso: string) => ymd(new Date(iso))
+type Span = { from: string; to: string; running: boolean }
+function actualSpans(tasks: TaskRow[]) {
+  const out = new Map<number, Span>()
+  const today = ymd(new Date())
+  const walk = (n: TreeNode): Span | null => {
+    const t = n.task
+    let r = null as Span | null
+    if (n.children.length) {
+      for (const c of n.children) {
+        const x = walk(c)
+        if (x) r = r ? { from: x.from < r.from ? x.from : r.from, to: x.to > r.to ? x.to : r.to, running: r.running || x.running } : x
+      }
+      if (r && t.status === 'done') r = { ...r, running: false }
+    } else if (t.actual_start) {
+      const running = t.status !== 'done'
+      r = { from: localDay(t.actual_start), to: running ? today : localDay(t.completed_at ?? t.actual_start), running }
+      if (r.to < r.from) r.to = r.from
+    }
+    if (r) out.set(t.id, r)
+    return r
+  }
+  buildTree(tasks).forEach(walk)
+  return out
+}
 const ROW = 34, NAME_W = 300
 export function TaskGantt({ tasks, onOpen }: ViewProps) {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
   const [dayW, setDayW] = useState(26)
   const scroller = useRef<HTMLDivElement>(null)
   const rows = useMemo(() => flatten(buildTree(tasks), collapsed), [tasks, collapsed])
+  const actual = useMemo(() => actualSpans(tasks), [tasks])
   const dated = tasks.filter((t) => t.start_date || t.due_date)
   const bounds = useMemo(() => {
     const todayD = dateOf(ymd(new Date()))
@@ -194,6 +251,12 @@ export function TaskGantt({ tasks, onOpen }: ViewProps) {
       <div className="flex items-center gap-2 mb-2 text-xs">
         <span className="text-muted">Zoom</span>
         {[[14, 'Ringkas'], [26, 'Normal'], [44, 'Lebar']].map(([w, l]) => <button key={w} className={`btn ${dayW === w ? '!bg-brand-soft !text-brand !border-brand' : ''}`} onClick={() => setDayW(w as number)}>{l}</button>)}
+        <span className="hidden md:flex items-center gap-2.5 text-[10.5px] text-muted ml-2">
+          <span><i className="inline-block w-3 h-2.5 rounded mr-1 align-middle" style={{ background: GANTT_PLAN_BG, border: `1px solid ${GANTT_PLAN_LINE}` }} />Plan</span>
+          <span><i className="inline-block w-3 h-2.5 rounded mr-1 align-middle" style={{ background: GANTT_COLOR.tinggi }} />Aktual · prioritas tinggi</span>
+          <span><i className="inline-block w-3 h-2.5 rounded mr-1 align-middle" style={{ background: GANTT_COLOR.normal }} />normal</span>
+          <span><i className="inline-block w-3 h-2.5 rounded mr-1 align-middle" style={{ background: GANTT_COLOR.parent }} />induk</span>
+        </span>
         <button className="btn ml-auto" onClick={() => { if (scroller.current) scroller.current.scrollLeft = Math.max(0, todayX - 120) }}>Ke hari ini</button>
         <button className="btn" onClick={() => setCollapsed(new Set(rows.filter((r) => r.hasKids).map((r) => r.task.id)))}>Ciutkan semua</button>
         <button className="btn" onClick={() => setCollapsed(new Set())}>Bentangkan</button>
@@ -221,17 +284,24 @@ export function TaskGantt({ tasks, onOpen }: ViewProps) {
             <div className="relative">
               {rows.map(({ task: t }) => {
                 const s = t.start_date ?? t.due_date, e = t.due_date ?? t.start_date
+                const act = actual.get(t.id)
+                const color = GANTT_COLOR[t.is_parent ? 'parent' : t.priority]
                 return (
                   <div key={t.id} className="relative border-b border-line/60" style={{ height: ROW }}>
                     {s && e ? (() => {
                       const left = dayDiff(bounds.start, dateOf(s)) * dayW
                       const w = (dayDiff(dateOf(s), dateOf(e)) + 1) * dayW
-                      const color = t.overdue ? cssColor('danger') : STATUS_BAR[t.status]
+                      const aLeft = act ? dayDiff(bounds.start, dateOf(act.from)) * dayW : 0
+                      const aW = act ? (dayDiff(dateOf(act.from), dateOf(act.to)) + 1) * dayW : 0
+                      const late = act && act.to > e // worked past the plan: the overrun is drawn outside the grey plan bar
                       return (
-                        <button onClick={() => onOpen(t.id)} title={`${t.title} · ${fmt(s)} – ${fmt(e)} · ${Math.round(t.progress)}%`}
-                          className="absolute top-[7px] h-[20px] rounded overflow-hidden text-left" style={{ left, width: Math.max(w, 6), background: `${color}33`, border: `1px solid ${color}` }}>
-                          <span className="absolute inset-y-0 left-0" style={{ width: `${t.progress}%`, background: color, opacity: 0.85 }} />
-                          {w > 70 && <span className="relative text-[10px] px-1.5 leading-[18px] text-ink font-semibold truncate block">{t.pic_name.split(' ')[0]}</span>}
+                        <button onClick={() => onOpen(t.id)} title={`${t.title} · Plan ${fmt(s)} – ${fmt(e)}${act ? ` · Aktual ${fmt(act.from)} – ${act.running ? 'berjalan' : fmt(act.to)}` : ' · belum dimulai'} · ${Math.round(t.progress)}%`}
+                          className="absolute inset-y-0 left-0 w-full text-left cursor-pointer">
+                          <span className="absolute top-[7px] h-[20px] rounded" style={{ left, width: Math.max(w, 6), background: GANTT_PLAN_BG, border: `1px solid ${GANTT_PLAN_LINE}` }} />
+                          {act && <span className="absolute top-[7px] h-[20px] rounded flex items-center overflow-hidden" style={{ left: aLeft, width: Math.max(aW, 6), background: color, opacity: late ? 0.9 : 1 }}>
+                            {aW > 70 && <span className="text-[10px] px-1.5 text-white font-semibold truncate">{t.pic_name.split(' ')[0]} · {Math.round(t.progress)}%</span>}
+                          </span>}
+                          {!act && w > 70 && <span className="absolute top-[7px] h-[20px] leading-[18px] text-[10px] px-1.5 text-muted font-semibold truncate" style={{ left }}>{t.pic_name.split(' ')[0]}</span>}
                         </button>
                       )
                     })() : <span className="absolute left-2 top-2 text-[10px] text-muted">tanpa jadwal</span>}

@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Download } from 'lucide-react'
 import Layout from '../components/Layout/Layout'
 import ActivityModal from '../components/ActivityModal'
+import PersonalCalendar from '../components/PersonalCalendar'
+import ActivityPanel from '../components/tasks/ActivityPanel'
 import Badge from '../components/ui/Badge'
 import ProgressBar from '../components/ui/ProgressBar'
 import StatCard from '../components/ui/StatCard'
@@ -120,20 +122,9 @@ export default function Dashboard() {
         {kpis.map((c) => <StatCard key={c.label} label={c.label} value={c.value} foot={c.foot} />)}
       </div>
 
-      <div className="grid xl:grid-cols-[1.35fr_.65fr] gap-3 mt-3">
+      <div className="grid xl:grid-cols-[minmax(0,1.35fr)_minmax(0,.65fr)] gap-3 mt-3">
         {mine && p ? (
-          <Section title="Tugas Saya" sub="Diurutkan dari yang paling mendesak" action={<Link to="/tasks" className="btn">Buka Tugas</Link>}>
-            <div className="divide-y divide-line">
-              {p.my_tasks.map((t) => (
-                <button key={t.id} onClick={() => nav(`/tasks?open=${t.id}`)} className="w-full text-left px-4 py-2.5 flex items-center gap-3 hover:bg-sunken">
-                  <div className="min-w-0 flex-1"><div className="font-semibold truncate">{t.title}</div><div className="text-[11px] text-muted truncate">{t.project || 'Non project'} · deadline {t.due || '–'}</div></div>
-                  {t.timeliness && <Badge tone={TIMELINESS_TONE[t.timeliness as Exclude<Timeliness, ''>]}>{t.timeliness_label}</Badge>}
-                  <div className="w-24 hidden sm:block"><ProgressBar value={t.progress} small /></div>
-                </button>
-              ))}
-              {!p.my_tasks.length && <div className="px-4 py-8 text-center text-xs text-muted">Tidak ada tugas terbuka</div>}
-            </div>
-          </Section>
+          <ActivityPanel onOpen={(id) => nav(`/tasks?open=${id}`)} />
         ) : (
           <Section title="Performance Departemen" sub={`KPI bulan berjalan · ${monthLabel}`} action={<Link to="/kpi" className="btn">Detail</Link>}>
             <div className="p-4">
@@ -148,13 +139,15 @@ export default function Dashboard() {
           </Section>
         )}
 
-        <Section title="Perlu Perhatian" sub="Action center hari ini">
+        <Section title="Perlu Perhatian" sub="Action center hari ini" className="min-w-0 self-start">
+          <div className="max-h-[420px] overflow-y-auto">
           {d.actions.map((a, i) => (
             <Link key={a.title + i} to={a.to} className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-line last:border-0 hover:bg-sunken">
-              <div className="min-w-0"><div className="font-semibold">{a.title}</div><div className="text-[11.5px] text-muted truncate">{a.sub}</div></div>
+              <div className="min-w-0"><div className="font-semibold truncate">{a.title}</div><div className="text-[11.5px] text-muted truncate">{a.sub}</div></div>
               <Badge tone={a.tone}>{a.badge}</Badge>
             </Link>
           ))}
+          </div>
         </Section>
       </div>
 
@@ -180,7 +173,9 @@ export default function Dashboard() {
         </div>
       </Section>
 
-      <div className="grid xl:grid-cols-[1.35fr_.65fr] gap-3 mt-3">
+      {mine && p && <div className="mt-3"><PersonalCalendar /></div>}
+
+      <div className="grid xl:grid-cols-[minmax(0,1.35fr)_minmax(0,.65fr)] gap-3 mt-3">
         {mine && p ? (
           <Section title="Kehadiran & Cuti" sub={`Ringkasan pribadi · ${p.name}${p.position ? ` · ${p.position}` : ''}`} action={<Link to="/leave" className="btn">Cuti & Izin</Link>}>
             <div className="grid sm:grid-cols-2 gap-4 p-4">
