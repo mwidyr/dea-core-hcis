@@ -15,7 +15,8 @@ func role(c *gin.Context) string { v, _ := c.Get("role"); s, _ := v.(string); re
 // isGroupLevel roles may see every business ("Semua Bisnis").
 func isGroupLevel(c *gin.Context) bool { r := role(c); return r == "super_admin" || r == "hr_admin" }
 
-// seesAll: roles that may READ every business and person (group-level + Komisaris). Write powers stay with isGroupLevel.
+// seesAll: roles that may READ every person inside the businesses they can open (group-level + Komisaris). Business access itself is
+// limited by allowedBusinessIDs; write powers stay with isGroupLevel.
 func seesAll(c *gin.Context) bool { return isGroupLevel(c) || role(c) == "komisaris" }
 
 // topLevelClasses are the "Direksi" / "Komisaris" positions: no attendance and no approvals of their own.
@@ -40,9 +41,24 @@ func isDirekturEmployee(empID uint) bool {
 	return n > 0
 }
 
-// allowedBusinessIDs returns nil for users who see every business (no restriction).
+// businessAllowed: may the caller open this business? Only super admin / HR admin reach every business; everybody else
+// (Komisaris, Direktur, Manager, Leader, Karyawan) only the businesses on their account (more than one = multi-business).
+func businessAllowed(c *gin.Context, bizID uint) bool {
+	ids := allowedBusinessIDs(c)
+	if ids == nil {
+		return true
+	}
+	for _, id := range ids {
+		if id == bizID {
+			return true
+		}
+	}
+	return false
+}
+
+// allowedBusinessIDs returns nil only for group-level users (super admin, HR admin); others get the businesses on their account.
 func allowedBusinessIDs(c *gin.Context) []uint {
-	if seesAll(c) {
+	if isGroupLevel(c) {
 		return nil
 	}
 	var ids []uint

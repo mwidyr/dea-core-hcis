@@ -128,8 +128,25 @@ func Init(db *gorm.DB) error {
 		}
 		db.Create(&seeded{Key: d.Key})
 	}
+	// roles introduced after the first release get their full default set once (the per-key marks above only cover new keys)
+	for _, r := range rolesAddedLater {
+		var done int64
+		db.Model(&seeded{}).Where("key = ?", "role:"+r).Count(&done)
+		if done > 0 {
+			continue
+		}
+		for _, d := range Defs {
+			if defaults(r)[d.Key] {
+				db.Where(RolePermission{Role: r, Permission: d.Key}).FirstOrCreate(&RolePermission{Role: r, Permission: d.Key})
+			}
+		}
+		db.Create(&seeded{Key: "role:" + r})
+	}
 	return Reload(db)
 }
+
+// rolesAddedLater: roles that did not exist in the first release (Leader, Komisaris).
+var rolesAddedLater = []string{"leader", "komisaris"}
 
 func Reload(db *gorm.DB) error {
 	var rows []RolePermission

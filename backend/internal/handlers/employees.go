@@ -71,7 +71,15 @@ func employeeVisible(group bool, me *uint, target uint, below func(me, target ui
 
 // canSeeEmployee applies employeeVisible for the current request.
 func canSeeEmployee(c *gin.Context, target uint) bool {
-	return employeeVisible(seesAll(c), myEmployeeID(c), target, inDownline)
+	if role(c) == "komisaris" { // sees everyone, but only inside the businesses on their account
+		var n int64
+		employeeBizScope(c, database.DB.Model(&models.Employee{})).Where("employees.id = ?", target).Count(&n)
+		if n > 0 {
+			return true
+		}
+		return employeeVisible(false, myEmployeeID(c), target, inDownline)
+	}
+	return employeeVisible(isGroupLevel(c), myEmployeeID(c), target, inDownline)
 }
 
 // EmployeeOptions is a light picker list (id, name, nik, unit, business). ?scope=team keeps the caller's

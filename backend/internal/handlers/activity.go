@@ -35,7 +35,7 @@ func listActivity(c *gin.Context, personal bool, date *time.Time, limit, offset 
 	switch {
 	case personal:
 		db = db.Where("a.user_id = ?", uid(c))
-	case seesAll(c) && c.Query("business_id") == "":
+	case isGroupLevel(c) && c.Query("business_id") == "":
 		// everything
 	default:
 		sub := employeeScope(c, database.DB.Model(&models.Employee{})).Select("employees.id")

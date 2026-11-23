@@ -276,7 +276,7 @@ func GetApproval(c *gin.Context) {
 	if !seesAll(c) && me != nil && r.RequesterEmployeeID != nil {
 		inDown = inDownline(*me, *r.RequesterEmployeeID)
 	}
-	if !canSeeApproval(seesAll(c), uid(c), me, &r, inDown) {
+	if !canSeeApproval(isGroupLevel(c) || (role(c) == "komisaris" && businessAllowed(c, r.BusinessID)), uid(c), me, &r, inDown) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "tidak berwenang"})
 		return
 	}

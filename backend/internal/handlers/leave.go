@@ -85,7 +85,7 @@ func employeeScope(c *gin.Context, q *gorm.DB) *gorm.DB {
 
 // canViewLeave: the requester, their superiors, anyone who must approve it, and group-level roles.
 func canViewLeave(c *gin.Context, lr models.LeaveRequest) bool {
-	if seesAll(c) {
+	if isGroupLevel(c) || (role(c) == "komisaris" && businessAllowed(c, lr.BusinessID)) {
 		return true
 	}
 	if me := myEmployeeID(c); me != nil && (*me == lr.EmployeeID || inDownlineOf(*me, lr.EmployeeID)) {
