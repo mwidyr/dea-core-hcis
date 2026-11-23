@@ -113,7 +113,7 @@ export default function Layout({ title, subtitle, actions, children }: { title: 
             <div className="hidden md:block">{bizSelect}</div>
             <ThemeToggle className="hidden md:inline-flex" />
             <button type="button" onClick={() => { setAvMsg(''); setProfile(true) }} title="Foto profil" className="hidden md:flex items-center gap-2 px-2 rounded-lg hover:bg-sunken text-right leading-tight max-w-[200px]">
-              <span className="min-w-0"><span className="block text-xs font-bold truncate">{user?.name}</span><span className="block text-[10px] text-muted">{user?.role}</span></span>
+              <span className="min-w-0"><span className="block text-xs font-bold truncate">{user?.name}</span><span className="block text-[10px] text-muted truncate">{user?.position}</span></span>
               <Avatar empId={user?.employee_id} name={user?.name ?? ''} version={user?.avatar} size={30} />
             </button>
             <button className="btn hidden md:inline-flex" title="Keluar" aria-label="Keluar" onClick={doLogout}><LogOut className="w-3.5 h-3.5" /></button>
@@ -121,7 +121,7 @@ export default function Layout({ title, subtitle, actions, children }: { title: 
               <button className="btn !px-2.5" onClick={() => setMenu((m) => !m)} aria-label="Menu akun" aria-expanded={menu}><MoreVertical className="w-4 h-4" /></button>
               {menu && (
                 <div className="absolute right-0 mt-2 w-[min(300px,calc(100vw-1.5rem))] bg-panel border border-line rounded-xl shadow-2xl p-3 space-y-3 z-40">
-                  <div className="leading-tight"><div className="text-xs font-bold">{user?.name}</div><div className="text-[10px] text-muted">{user?.role}</div></div>
+                  <div className="leading-tight"><div className="text-xs font-bold">{user?.name}</div><div className="text-[10px] text-muted">{user?.position}</div></div>
                   <label className="block text-[11px] font-semibold text-muted">Bisnis<div className="mt-1 text-ink">{bizSelect}</div></label>
                   <div className="flex items-center gap-2"><ThemeToggle /><span className="text-[11px] text-muted">Tema</span><button className="btn ml-auto" onClick={doLogout}><LogOut className="w-3.5 h-3.5 inline mr-1" />Keluar</button></div>
                 </div>

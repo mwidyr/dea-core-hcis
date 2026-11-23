@@ -121,6 +121,8 @@ func Setup(cfg *config.Config) *gin.Engine {
 	auth.POST("/me/avatar", handlers.UploadMyAvatar)
 	auth.DELETE("/me/avatar", handlers.DeleteMyAvatar)
 	auth.GET("/employees/:id/avatar", handlers.EmployeeAvatar)
+	auth.POST("/employees/:id/avatar", handlers.UploadEmployeeAvatar)
+	auth.DELETE("/employees/:id/avatar", handlers.DeleteEmployeeAvatar)
 	auth.GET("/tasks/activity", handlers.ActivityList)
 	auth.POST("/tasks/:id/sessions/start", handlers.StartTaskSession)
 	auth.POST("/tasks/:id/sessions/pause", handlers.PauseTaskSession)

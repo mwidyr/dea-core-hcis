@@ -10,11 +10,13 @@ import Tabs from '../components/ui/Tabs'
 import CompetencyTab from '../components/employee/CompetencyTab'
 import ContractHistory from '../components/employee/ContractHistory'
 import DocumentsTab from '../components/employee/DocumentsTab'
+import EmployeePhoto from '../components/employee/EmployeePhoto'
+import Avatar from '../components/ui/Avatar'
 import { useAuthStore } from '../store/auth'
 import { bizParams, useBusinessStore } from '../store/business'
-import { deleteEmployee, getEmployee, getEmployees, setEmployeeStatus } from '../services/api'
+import { deleteEmployee, getEmployee, getEmployees, getLocations, setEmployeeStatus } from '../services/api'
 import { daysLeft, errMsg, fmt, tenure } from '../utils/format'
-import type { Employee } from '../types'
+import type { Employee, Location } from '../types'
 
 const STATUSES = ['Aktif', 'Non aktif', 'Suspend', 'Tidak Bekerja'] as const
 const statusTone = { Aktif: 'green', 'Non aktif': 'blue', Suspend: 'amber', 'Tidak Bekerja': 'gray' } as const
@@ -28,6 +30,8 @@ export default function Employees() {
   const [q, setQ] = useState('')
   const [type, setType] = useState('')
   const [status, setStatus] = useState('')
+  const [locationId, setLocationId] = useState('')
+  const [locations, setLocations] = useState<Location[]>([])
   const [stats, setStats] = useState({ active: 0, tetap: 0, kontrak: 0, freelance: 0, multi: 0, expiring: 0 })
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
@@ -40,15 +44,16 @@ export default function Employees() {
   const [statusEdit, setStatusEdit] = useState<{ emp: Employee; status: string; note: string } | null>(null)
 
   const load = () => {
-    getEmployees({ ...bizParams(businessId), q: q || undefined, employee_type: type || undefined, status: status || undefined, page, page_size: pageSize, sort: sort.col, dir: sort.dir }).then((r) => {
+    getEmployees({ ...bizParams(businessId), q: q || undefined, employee_type: type || undefined, status: status || undefined, location_id: locationId || undefined, page, page_size: pageSize, sort: sort.col, dir: sort.dir }).then((r) => {
       setList(r.data.data ?? []); setTotal(r.data.total)
       if (r.data.stats) setStats(r.data.stats) // absent on an outdated backend — keep zeros instead of crashing
       const last = pageSize === 0 ? 1 : Math.max(1, Math.ceil(r.data.total / pageSize))
       if (page > last) setPage(last)
     })
   }
-  useEffect(() => setPage(1), [businessId, q, type, status, pageSize, sort])
-  useEffect(() => { const t = setTimeout(load, 200); return () => clearTimeout(t) }, [businessId, q, type, status, page, pageSize, sort])
+  useEffect(() => setPage(1), [businessId, q, type, status, locationId, pageSize, sort])
+  useEffect(() => { const t = setTimeout(load, 200); return () => clearTimeout(t) }, [businessId, q, type, status, locationId, page, pageSize, sort])
+  useEffect(() => { setLocationId(''); getLocations(bizParams(businessId)).then((r) => setLocations(r.data)).catch(() => setLocations([])) }, [businessId])
 
   // old deep link /employees?edit=<id> now opens the full page
   useEffect(() => {
@@ -88,6 +93,7 @@ export default function Employees() {
           <input className="input w-64" placeholder="Cari nama, email, jabatan…" value={q} onChange={(e) => setQ(e.target.value)} />
           <select className="input" value={type} onChange={(e) => setType(e.target.value)}><option value="">Semua Jenis</option><option>Tetap</option><option>Kontrak</option><option>Freelance</option></select>
           <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}><option value="">Semua Status</option>{STATUSES.map((s) => <option key={s}>{s}</option>)}</select>
+          <select className="input" value={locationId} onChange={(e) => setLocationId(e.target.value)} aria-label="Filter lokasi"><option value="">Semua Lokasi</option>{locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select>
           {canEdit && <button className="btn-primary ml-auto" onClick={addNew}><Plus className="w-3.5 h-3.5 inline mr-1" />Karyawan</button>}
         </div>
         <div className="border border-line rounded-lg overflow-auto">
@@ -107,7 +113,7 @@ export default function Employees() {
                 const extra = e.placements?.filter((p) => !p.is_primary) ?? []
                 return (
                   <tr key={e.id} className={e.status !== 'Aktif' ? 'bg-sunken/70 text-muted' : ''}>
-                    <td className="td"><b>{e.name}</b>{e.nik && <div className="text-muted text-[11px]">{e.nik}</div>}</td>
+                    <td className="td"><div className="flex items-center gap-2.5"><Avatar empId={e.id} name={e.name} version={e.avatar} size={34} /><div className="min-w-0"><b>{e.name}</b>{e.nik && <div className="text-muted text-[11px]">{e.nik}</div>}</div></div></td>
                     <td className="td">{e.business?.name}</td>
                     <td className="td">{e.position?.title ?? '-'}</td>
                     <td className="td">{e.location?.name ?? '-'}</td>
@@ -139,7 +145,8 @@ export default function Employees() {
           <div className="space-y-4">
             {canEdit && <Tabs tabs={[{ id: 'personal', label: 'Data Personal' }, { id: 'competency', label: 'Kompetensi History' }, { id: 'docs', label: 'Foto & Dokumen' }]} value={detailTab} onChange={setDetailTab} />}
             {detailTab === 'personal' && <>
-            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div className="flex flex-col-reverse sm:flex-row gap-5 items-start">
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs flex-1 min-w-0">
               {[['Bisnis', detail.business?.name], ['Unit', detail.unit?.name], ['Jabatan', detail.position?.title], ['Lokasi', detail.location?.name],
                 ['NIK', detail.nik], ['Email', detail.email], ['Telepon', detail.phone], ['Tempat, Tgl Lahir', detail.birth_place || detail.birth_date ? `${detail.birth_place || '-'}, ${fmt(detail.birth_date)}` : '-'],
                 ['Jenis', detail.employee_type], ['Tanggal Masuk', fmt(detail.join_date)], ['Kontrak Berakhir', fmt(detail.contract_end)],
@@ -147,6 +154,8 @@ export default function Employees() {
                 <div key={k as string}><dt className="text-muted text-[10.5px]">{k}</dt><dd className="font-semibold">{v || '-'}</dd></div>
               ))}
             </dl>
+            <EmployeePhoto empId={detail.id} name={detail.name} version={detail.avatar} onChanged={(v) => { setDetail((d) => (d ? { ...d, avatar: v } : d)); load() }} />
+            </div>
             {canEdit && <div><div className="text-[11px] font-bold mb-2">Histori Kontrak</div><ContractHistory empId={detail.id} canEdit={false} onChanged={() => {}} /></div>}
             </>}
             {canEdit && detailTab === 'competency' && <CompetencyTab empId={detail.id} canEdit={false} />}

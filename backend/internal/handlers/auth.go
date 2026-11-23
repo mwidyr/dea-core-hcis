@@ -81,12 +81,23 @@ func ChangePassword(c *gin.Context) {
 
 func userView(u *models.User) gin.H {
 	noAtt := false // Direksi / Komisaris do not do attendance
+	position := ""
+	avatar, hasAvatar := u.AvatarAt, u.AvatarPath != ""
 	if u.EmployeeID != nil {
-		var lc string
-		database.DB.Raw("SELECT p.level_class FROM employees e JOIN positions p ON p.id = e.position_id WHERE e.id = ?", *u.EmployeeID).Scan(&lc)
-		noAtt = noAttendanceClass(lc)
+		var row struct {
+			Title      string
+			LevelClass string
+			AvatarPath string
+			AvatarAt   int64
+		}
+		database.DB.Raw(`SELECT p.title, p.level_class, e.avatar_path, e.avatar_at FROM employees e LEFT JOIN positions p ON p.id = e.position_id WHERE e.id = ?`, *u.EmployeeID).Scan(&row)
+		noAtt, position = noAttendanceClass(row.LevelClass), row.Title
+		avatar, hasAvatar = row.AvatarAt, row.AvatarPath != "" // a linked account shows the employee's photo
 	}
-	return gin.H{"id": u.ID, "email": u.Email, "name": u.Name, "role": u.Role, "employee_id": u.EmployeeID, "businesses": u.Businesses, "permissions": perm.For(u.Role), "no_attendance": noAtt, "avatar": u.AvatarAt, "has_avatar": u.AvatarPath != ""}
+	if !hasAvatar {
+		avatar = 0
+	}
+	return gin.H{"id": u.ID, "email": u.Email, "name": u.Name, "role": u.Role, "position": position, "employee_id": u.EmployeeID, "businesses": u.Businesses, "permissions": perm.For(u.Role), "no_attendance": noAtt, "avatar": avatar, "has_avatar": hasAvatar}
 }
 
 // Businesses returns the businesses the caller may switch to.

@@ -120,6 +120,9 @@ func migrate(db *gorm.DB) {
 	// holiday scope/kind/category backfill (idempotent)
 	db.Exec("UPDATE holidays SET kind = 'semua' WHERE kind IS NULL OR kind = ''")
 	db.Exec("UPDATE holidays SET category = CASE WHEN deducts_leave THEN 'cuti_bersama' ELSE 'libur_nasional' END WHERE category IS NULL OR category = ''")
+	// account photos from the first avatar release now live on the employee record (idempotent)
+	db.Exec(`UPDATE employees e SET avatar_path = u.avatar_path, avatar_mime = u.avatar_mime, avatar_at = u.avatar_at
+		FROM users u WHERE u.employee_id = e.id AND u.avatar_path <> '' AND (e.avatar_path IS NULL OR e.avatar_path = '')`)
 	// position level classes were renamed (idempotent)
 	db.Exec("UPDATE positions SET level_class = 'Coordinator / Team Lead' WHERE level_class = 'Coordinator / Team Leader'")
 	db.Exec("UPDATE positions SET level_class = 'Non Staff' WHERE level_class = 'Non-Staff / Operator'")

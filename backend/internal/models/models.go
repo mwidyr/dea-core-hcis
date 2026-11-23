@@ -64,6 +64,9 @@ type Employee struct {
 	PlaceOfHire    string     `json:"place_of_hire"` // POH: where the employee was hired
 	BirthPlace     string     `json:"birth_place"`
 	BirthDate      *time.Time `json:"birth_date"`
+	AvatarPath     string     `json:"-"` // employee photo (relative path in the upload store), empty = none
+	AvatarMime     string     `json:"-"`
+	AvatarAt       int64      `json:"avatar"` // 0 = no photo, else unix time of the upload (cache-busting version)
 	// Status: Aktif | Non aktif | Suspend | Tidak Bekerja (manual). IsActive mirrors Status == "Aktif".
 	Status     string              `gorm:"default:Aktif" json:"status"`
 	StatusNote string              `json:"status_note"`

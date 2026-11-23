@@ -4,6 +4,8 @@ import { ArrowLeft, Save } from 'lucide-react'
 import Layout from '../components/Layout/Layout'
 import Tabs from '../components/ui/Tabs'
 import Badge from '../components/ui/Badge'
+import Modal from '../components/ui/Modal'
+import EmployeePhoto from '../components/employee/EmployeePhoto'
 import CompetencyTab from '../components/employee/CompetencyTab'
 import ContractHistory from '../components/employee/ContractHistory'
 import DocumentsTab from '../components/employee/DocumentsTab'
@@ -52,6 +54,7 @@ export default function EmployeeDetail() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [loginChange, setLoginChange] = useState<{ old_email: string; new_email: string } | null>(null) // popup: the login email follows the employee email
   const editing = empId > 0
   const set = (k: keyof Employee, v: any) => setForm((f) => ({ ...f, [k]: v }))
 
@@ -71,8 +74,8 @@ export default function EmployeeDetail() {
     getWorkCalendars({ business_id: bizId }).then((r) => setCalendars(r.data.data.filter((c) => c.is_active)))
   }, [bizId])
 
-  const submit = async () => {
-    setError(''); setNotice('')
+  const submit = async (confirmLogin = false) => {
+    setError(''); setNotice(''); setLoginChange(null)
     if (!form.name?.trim()) return setError('Nama wajib diisi')
     if (!form.business_id) return setError('Pilih bisnis terlebih dahulu')
     const needsFirst = !editing && (form.employee_type === 'Kontrak' || form.employee_type === 'Freelance') && first.start
@@ -82,10 +85,14 @@ export default function EmployeeDetail() {
       const payload: Partial<Employee> = { ...form, birth_date: iso(day(form.birth_date)), join_date: iso(day(form.join_date)) }
       delete payload.contract_start; delete payload.contract_end; delete payload.doh; delete payload.contract_count
       if (needsFirst) { payload.contract_start = iso(first.start); payload.contract_end = iso(first.end) }
-      const { data: saved } = await saveEmployee(payload)
+      const { data: saved } = await saveEmployee(confirmLogin ? { ...payload, confirm_login_email: true } : payload)
       if (!editing) nav(`/employees/${saved.id}`, { replace: true, state: { created: true } })
       else { await load(); setNotice('Data karyawan tersimpan.') }
-    } catch (e: any) { setError(errMsg(e, 'Gagal menyimpan')) } finally { setBusy(false) }
+    } catch (e: any) {
+      const d = e?.response?.data
+      if (e?.response?.status === 409 && d?.code === 'login_email_change') setLoginChange({ old_email: d.old_email, new_email: d.new_email })
+      else setError(errMsg(e, 'Gagal menyimpan'))
+    } finally { setBusy(false) }
   }
 
   const saveStatus = async () => {
@@ -113,11 +120,12 @@ export default function EmployeeDetail() {
 
       {tab === 'personal' && <>
         <Section title="Data Personal">
+          {editing && emp && <div className="mb-4 flex items-start gap-4"><EmployeePhoto empId={emp.id} name={emp.name} version={emp.avatar} size={96} onChanged={() => load()} /><p className="text-muted pt-1">Foto karyawan. Dapat diubah oleh karyawan itu sendiri, HR, dan admin. Foto tampil di daftar karyawan, board tugas, dan profil.</p></div>}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <L label="Nama Lengkap"><input className="input w-full" value={form.name ?? ''} onChange={(e) => set('name', e.target.value)} /></L>
             <L label="NIK (login absen)"><input className="input w-full" value={form.nik ?? ''} onChange={(e) => set('nik', e.target.value)} placeholder={editing ? '' : 'otomatis jika kosong'} /></L>
             <L label="Telepon"><input className="input w-full" value={form.phone ?? ''} onChange={(e) => set('phone', e.target.value)} /></L>
-            <L label="Email"><input className="input w-full" type="email" value={form.email ?? ''} onChange={(e) => set('email', e.target.value)} /></L>
+            <L label="Email"><input className="input w-full" type="email" value={form.email ?? ''} onChange={(e) => set('email', e.target.value)} />{editing && emp?.has_account && emp.login_email && emp.login_email.toLowerCase() !== (form.email ?? '').trim().toLowerCase() && <div className="text-[11px] text-warn mt-1">Email login akun saat ini: <b>{emp.login_email}</b>. Saat disimpan, Anda akan diminta konfirmasi untuk mengganti email login menjadi email ini.</div>}</L>
             <L label="Tempat Lahir"><input className="input w-full" value={form.birth_place ?? ''} onChange={(e) => set('birth_place', e.target.value)} /></L>
             <L label="Tanggal Lahir"><input className="input w-full" type="date" value={day(form.birth_date)} onChange={(e) => set('birth_date', e.target.value)} /></L>
           </div>
@@ -215,12 +223,22 @@ export default function EmployeeDetail() {
         {notice && <div className="text-ok bg-ok-soft rounded-lg px-3 py-2 mb-3 text-xs">{notice}</div>}
         <div className="sticky bottom-0 -mx-1 px-1 py-3 bg-surface/95 backdrop-blur flex justify-end gap-2">
           <button className="btn" onClick={() => nav('/employees')}>{editing ? 'Tutup' : 'Batal'}</button>
-          <button className="btn-primary" disabled={busy} onClick={submit}><Save className="w-3.5 h-3.5 inline mr-1" />{busy ? 'Menyimpan…' : editing ? 'Simpan Perubahan' : 'Simpan Karyawan'}</button>
+          <button className="btn-primary" disabled={busy} onClick={() => submit()}><Save className="w-3.5 h-3.5 inline mr-1" />{busy ? 'Menyimpan…' : editing ? 'Simpan Perubahan' : 'Simpan Karyawan'}</button>
         </div>
       </>}
 
       {tab === 'competency' && editing && <div className="card p-4"><CompetencyTab empId={empId} canEdit /></div>}
       {tab === 'docs' && editing && <div className="card p-4"><DocumentsTab empId={empId} canEdit onChanged={load} /></div>}
+      <Modal open={!!loginChange} onClose={() => setLoginChange(null)} title="Ganti email login juga?">
+        {loginChange && (
+          <div className="space-y-3 text-xs">
+            <p>Email karyawan ini juga dipakai untuk <b>login</b>. Jika Anda lanjut, email login ikut diganti:</p>
+            <div className="border border-line rounded-lg p-3 bg-sunken space-y-1"><div><span className="text-muted">Sekarang:</span> <b>{loginChange.old_email}</b></div><div><span className="text-muted">Menjadi:</span> <b className="text-brand">{loginChange.new_email}</b></div></div>
+            <p className="text-muted">Setelah disimpan, karyawan harus login dengan email baru (password tidak berubah). Email baru juga tampil di Settings → User &amp; Hak Akses.</p>
+            <div className="flex justify-end gap-2"><button className="btn" onClick={() => setLoginChange(null)}>Batal</button><button className="btn-primary" disabled={busy} onClick={() => submit(true)}>Ya, ganti email login</button></div>
+          </div>
+        )}
+      </Modal>
     </Layout>
   )
 }

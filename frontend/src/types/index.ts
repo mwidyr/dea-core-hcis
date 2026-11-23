@@ -5,7 +5,7 @@ export interface User {
   employee_id: number | null
   businesses: Business[]
   permissions?: string[]
-  avatar?: number; has_avatar?: boolean
+  avatar?: number; has_avatar?: boolean; position?: string
   no_attendance?: boolean // Direksi / Komisaris: no attendance
 }
 export interface OrgUnit { id: number; business_id: number; level: number; type_name: string; name: string; parent_id: number | null; is_active: boolean; parent?: OrgUnit }
@@ -13,6 +13,7 @@ export interface Position { id: number; business_id: number; title: string; unit
 export interface Location { id: number; business_id: number; name: string; type_name: string; city: string; latitude: number | null; longitude: number | null; radius_m: number; is_active: boolean }
 export interface Placement { id: number; is_primary: boolean; position?: Position; business?: Business }
 export interface Employee {
+  login_email?: string; has_account?: boolean; avatar?: number
   id: number; business_id: number; name: string; email: string; nik?: string; work_calendar_id?: number | null
   position_id: number | null; unit_id: number | null; manager_id: number | null
   phone?: string; birth_place?: string; birth_date?: string | null; place_of_hire?: string

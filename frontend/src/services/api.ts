@@ -52,7 +52,7 @@ export const getEmployees = (params?: object) =>
 // light picker list; scope=team keeps only self + downline, default = everyone active in my businesses
 export const getEmployeeOptions = (params?: object) => api.get<Employee[]>('/employees/options', { params })
 export const getEmployee = (id: number) => api.get<Employee>(`/employees/${id}`)
-export const saveEmployee = (d: Partial<Employee>) => (d.id ? api.put(`/employees/${d.id}`, d) : api.post('/employees', d))
+export const saveEmployee = (d: Partial<Employee> & { confirm_login_email?: boolean }) => (d.id ? api.put(`/employees/${d.id}`, d) : api.post('/employees', d))
 export const deleteEmployee = (id: number) => api.delete(`/employees/${id}`)
 export const setEmployeeStatus = (id: number, status: string, note: string) => api.patch(`/employees/${id}/status`, { status, note })
 export const getEmployeeDocuments = (id: number) => api.get<EmployeeDocument[]>(`/employees/${id}/documents`)
@@ -204,6 +204,8 @@ export const getActivityTasks = (date: string) => api.get<{ data: import('../typ
 export const startTaskSession = (id: number) => api.post(`/tasks/${id}/sessions/start`)
 export const pauseTaskSession = (id: number) => api.post(`/tasks/${id}/sessions/pause`)
 export const uploadMyAvatar = (file: File) => { const f = new FormData(); f.append('file', file); return api.post('/me/avatar', f) }
+export const uploadEmployeeAvatar = (id: number, file: File) => { const f = new FormData(); f.append('file', file); return api.post<{ ok: boolean; avatar: number }>(`/employees/${id}/avatar`, f) }
+export const deleteEmployeeAvatar = (id: number) => api.delete(`/employees/${id}/avatar`)
 export const deleteMyAvatar = () => api.delete('/me/avatar')
 export const fetchAvatarBlob = (empId: number) => api.get<Blob>(`/employees/${empId}/avatar`, { responseType: 'blob' })
 export const getAttendanceToday = () => api.get<import('../types').AttendanceToday>('/attendance/me/today')

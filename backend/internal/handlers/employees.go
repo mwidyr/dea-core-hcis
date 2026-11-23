@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -110,6 +112,9 @@ func ListEmployees(c *gin.Context) {
 	if v := c.Query("employee_type"); v != "" {
 		q = q.Where("employees.employee_type = ?", v)
 	}
+	if v := c.Query("location_id"); v != "" && v != "0" {
+		q = q.Where("employees.location_id = ?", v)
+	}
 	if v := c.Query("status"); v != "" {
 		q = q.Where("employees.status = ?", v)
 	}
@@ -194,15 +199,24 @@ func GetEmployee(c *gin.Context) {
 			managerName = m.Name
 		}
 	}
+	var acct models.User // the account this employee logs in with (its email may differ from the employee's own email)
+	database.DB.Select("id, email").Where("employee_id = ?", e.ID).Limit(1).Find(&acct)
 	c.JSON(http.StatusOK, struct {
 		models.Employee
 		ManagerName string `json:"manager_name"`
-	}{e, managerName})
+		LoginEmail  string `json:"login_email"`
+		HasAccount  bool   `json:"has_account"`
+	}{e, managerName, acct.Email, acct.ID != 0})
 }
 
 func SaveEmployee(c *gin.Context) {
 	var in models.Employee
-	if err := c.ShouldBindJSON(&in); err != nil || strings.TrimSpace(in.Name) == "" || in.BusinessID == 0 {
+	raw, _ := io.ReadAll(c.Request.Body)
+	var ex struct {
+		ConfirmLoginEmail bool `json:"confirm_login_email"` // the user confirmed that the login email follows the new employee email
+	}
+	_ = json.Unmarshal(raw, &ex)
+	if err := json.Unmarshal(raw, &in); err != nil || strings.TrimSpace(in.Name) == "" || in.BusinessID == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "nama dan bisnis wajib diisi"})
 		return
 	}
@@ -212,6 +226,7 @@ func SaveEmployee(c *gin.Context) {
 	}
 	in.ID = paramID(c)
 	in.Name = strings.TrimSpace(in.Name)
+	in.Email = strings.TrimSpace(in.Email)
 	in.Position, in.Unit, in.Location, in.Business, in.Placements, in.Contracts = nil, nil, nil, nil, nil, nil
 
 	oldNIK := ""
@@ -225,7 +240,8 @@ func SaveEmployee(c *gin.Context) {
 		in.ContractStart, in.ContractEnd = old.ContractStart, old.ContractEnd // contract periods are managed under /contracts
 		in.BusinessID = old.BusinessID                                        // business is locked once created
 		oldNIK = old.NIK
-		if !isGroupLevel(c) { // the work calendar is a rule: only HR admin / super admin change it
+		in.AvatarPath, in.AvatarMime, in.AvatarAt = old.AvatarPath, old.AvatarMime, old.AvatarAt // the photo is changed only through the avatar endpoints
+		if !isGroupLevel(c) {                                                                    // the work calendar is a rule: only HR admin / super admin change it
 			in.WorkCalendarID = old.WorkCalendarID
 		}
 	} else {
@@ -290,10 +306,38 @@ func SaveEmployee(c *gin.Context) {
 			}
 		}
 	}
+	// The employee's email is also the login email of their account: changing it renames the login, after an explicit confirmation.
+	var acct models.User
+	newLogin := ""
+	if in.ID != 0 && in.Email != "" {
+		database.DB.Where("employee_id = ?", in.ID).Limit(1).Find(&acct)
+		if acct.ID != 0 && !strings.EqualFold(acct.Email, in.Email) {
+			newLogin = strings.ToLower(in.Email)
+			if !strings.Contains(newLogin, "@") || strings.ContainsAny(newLogin, " ,;") {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "format email tidak valid"})
+				return
+			}
+			var taken int64
+			database.DB.Model(&models.User{}).Where("lower(email) = ? AND id <> ?", newLogin, acct.ID).Count(&taken)
+			if taken > 0 {
+				c.JSON(http.StatusConflict, gin.H{"error": "email ini sudah dipakai sebagai email login akun lain"})
+				return
+			}
+			if !ex.ConfirmLoginEmail {
+				c.JSON(http.StatusConflict, gin.H{"code": "login_email_change", "error": "email login akan ikut berubah, konfirmasi diperlukan", "old_email": acct.Email, "new_email": newLogin})
+				return
+			}
+		}
+	}
 	err := database.DB.Transaction(func(tx *gorm.DB) error {
 		isNew := in.ID == 0
 		if err := tx.Save(&in).Error; err != nil {
 			return err
+		}
+		if newLogin != "" {
+			if err := tx.Model(&models.User{}).Where("id = ?", acct.ID).Update("email", newLogin).Error; err != nil {
+				return err
+			}
 		}
 		if firstContract != nil {
 			firstContract.EmployeeID = in.ID
@@ -317,6 +361,9 @@ func SaveEmployee(c *gin.Context) {
 		return
 	}
 	audit(c, "save", "employee", in.ID)
+	if newLogin != "" {
+		audit(c, "login_email_change", "user", acct.ID)
+	}
 	c.JSON(http.StatusOK, in)
 }
 
