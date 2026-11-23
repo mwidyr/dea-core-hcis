@@ -69,7 +69,7 @@ export default function ProjectDetail() {
         {tab === 'wbs' && <Wbs project={p} tasks={tasks} onOpen={setOpenId} onChanged={load} />}
         {tab === 'gantt' && <TaskGantt tasks={tasks} onOpen={setOpenId} />}
         {tab === 'curve' && <Curve project={p} tasks={tasks} refreshKey={tasks.map((t) => `${t.id}:${t.status}:${t.weight}`).join()} />}
-        {tab === 'tasks' && <TaskList tasks={tasks} onOpen={setOpenId} groupBy="none" />}
+        {tab === 'tasks' && <TaskList tasks={tasks} onOpen={setOpenId} groupBy="none" onChanged={load} />}
         {tab === 'docs' && <Docs project={p} />}
       </div>
 

@@ -3,7 +3,7 @@ import { Pause, Play, Plus, Square } from 'lucide-react'
 import Badge from '../ui/Badge'
 import Modal from '../ui/Modal'
 import TaskForm from './TaskForm'
-import { TIMELINESS_LABEL, TIMELINESS_TONE, STATUS_LABEL, STATUS_TONE, doneClass, err, fmtShort, ymd } from './taskUtils'
+import { TIMELINESS_LABEL, TIMELINESS_TONE, statusText, STATUS_TONE, doneClass, err, fmtShort, ymd } from './taskUtils'
 import { completeTask, getActivityTasks, pauseTaskSession, startTaskSession } from '../../services/api'
 import type { ActivityRow } from '../../types'
 
@@ -81,7 +81,7 @@ export default function ActivityPanel({ onOpen }: { onOpen: (id: number) => void
                   ) : <span className="text-muted">{r.status === 'done' && r.completed_at ? `selesai ${hm(r.completed_at)}` : '–'}</span>}
                 </td>
                 <td className="td">{r.timeliness ? <Badge tone={TIMELINESS_TONE[r.timeliness]}>{TIMELINESS_LABEL[r.timeliness]}</Badge> : <span className="text-muted">–</span>}</td>
-                <td className="td"><Badge tone={STATUS_TONE[r.status]}>{r.running ? 'Running' : STATUS_LABEL[r.status]}</Badge></td>
+                <td className="td"><Badge tone={STATUS_TONE[r.status]}>{statusText(r)}</Badge></td>
                 <td className="td whitespace-nowrap">
                   <div className="flex gap-1.5">
                     {r.can_session && !r.running && <button className="btn-primary" disabled={busyId === r.id} onClick={() => run(r, () => startTaskSession(r.id))}><Play className="w-3 h-3 inline mr-1" />{r.sessions.length ? 'Lanjutkan' : 'Mulai'}</button>}

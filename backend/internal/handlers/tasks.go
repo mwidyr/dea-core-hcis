@@ -134,8 +134,10 @@ type taskView struct {
 	WaitingFor      string                      `json:"waiting_for"`
 	KPITitle        string                      `json:"kpi_title"`
 	CanManage       bool                        `json:"can_manage"`
-	CanWork         bool                        `json:"can_work"` // PIC or manager: may change status / complete
-	IsPIC           bool                        `json:"is_pic"`   // the caller is the PIC (only the PIC asks for a deadline change)
+	Running         bool                        `json:"running"`     // the caller has a work session open on this task
+	CanSession      bool                        `json:"can_session"` // the caller (PIC) may start / pause it
+	CanWork         bool                        `json:"can_work"`    // PIC or manager: may change status / complete
+	IsPIC           bool                        `json:"is_pic"`      // the caller is the PIC (only the PIC asks for a deadline change)
 	Depth           int                         `json:"depth"`
 	Timeliness      string                      `json:"timeliness"`       // late_start | overdue | on_track | done_on_time | done_late
 	TimelinessLabel string                      `json:"timeliness_label"` // Terlambat Mulai | Overdue | On Track | Selesai …
@@ -146,6 +148,14 @@ type taskView struct {
 func decorateTasks(c *gin.Context, ts []models.Task, calcs map[uint]*taskCalc) []taskView {
 	if len(ts) == 0 {
 		return []taskView{}
+	}
+	openByTask := map[uint]bool{}
+	if me := myEmployeeID(c); me != nil {
+		var open []uint
+		database.DB.Model(&models.TaskSession{}).Where("employee_id = ? AND ended_at IS NULL", *me).Pluck("task_id", &open)
+		for _, id := range open {
+			openByTask[id] = true
+		}
 	}
 	var ids, projIDs, apIDs []uint
 	for _, t := range ts {
@@ -285,8 +295,8 @@ func decorateTasks(c *gin.Context, ts []models.Task, calcs map[uint]*taskCalc) [
 			v.Overdue = true
 		}
 		if cc != nil && cc.isParent(t.ID) { // a parent starts with its earliest sub task and ends with its latest
-			if s, d := cc.span(t.ID); s != nil || d != nil {
-				v.StartDate, v.DueDate = s, d
+			if s, d, st, dt := cc.span(t.ID); s != nil || d != nil {
+				v.StartDate, v.DueDate, v.PlanStartTime, v.PlanEndTime = s, d, st, dt
 			}
 		}
 		v.Overdue = v.DueDate != nil && day(*v.DueDate).Before(now) && v.Status != "done"
@@ -294,6 +304,8 @@ func decorateTasks(c *gin.Context, ts []models.Task, calcs map[uint]*taskCalc) [
 		v.TimelinessLabel = timelinessLabel[v.Timeliness]
 		r := rolesOn(c, t)
 		v.CanManage, v.CanWork, v.IsPIC = r.Manager, r.Manager || r.PIC, r.PIC
+		v.Running = openByTask[t.ID]
+		v.CanSession = r.PIC && !v.IsParent && (v.Status == "todo" || v.Status == "in_progress")
 		out = append(out, v)
 	}
 	return out

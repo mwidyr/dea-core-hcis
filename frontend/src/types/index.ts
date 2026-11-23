@@ -94,6 +94,7 @@ export interface TaskSessionRow { id: number; started_at: string; ended_at: stri
 export interface ActivityRow extends TaskRow { sessions: TaskSessionRow[]; minutes: number; running: boolean; can_session: boolean; can_finish: boolean }
 export interface AttendanceToday { applicable: boolean; state?: 'none' | 'working' | 'done'; check_in?: string; check_out?: string; location?: string; work_minutes?: number; server_time?: string }
 export interface TaskRow {
+  running: boolean; can_session: boolean
   id: number; business_id: number; project_id: number | null; parent_id: number | null; title: string; description: string
   priority: 'normal' | 'tinggi'; assigner_id: number | null; pic_id: number; unit_id: number | null
   status: TaskStatus; own_status: TaskStatus; start_date: string | null; due_date: string | null; weight: number | null

@@ -88,7 +88,7 @@ export default function Tasks() {
           <div className="relative ml-auto"><Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" /><input className="input !pl-8 w-60" placeholder="Cari tugas atau PIC…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         </div>
 
-        {view === 'list' && <TaskList tasks={tasks} onOpen={setOpenId} groupBy={groupBy} unitLevel={unitLevel} />}
+        {view === 'list' && <TaskList tasks={tasks} onOpen={setOpenId} groupBy={groupBy} unitLevel={unitLevel} onChanged={load} />}
         {view === 'board' && <TaskBoard tasks={tasks} onOpen={setOpenId} onChanged={load} />}
         {view === 'calendar' && <TaskCalendar tasks={tasks} onOpen={setOpenId} />}
         {view === 'gantt' && <TaskGantt tasks={tasks} onOpen={setOpenId} />}

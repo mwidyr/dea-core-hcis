@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CalendarClock, Flame, History, Paperclip, Plus } from 'lucide-react'
+import { CalendarClock, Flame, History, Paperclip, Pause, Play, Plus } from 'lucide-react'
 import Badge from '../ui/Badge'
 import FileThumbs from '../ui/FileThumbs'
 import Modal from '../ui/Modal'
@@ -10,10 +10,10 @@ import TaskForm from './TaskForm'
 import { useAuthStore } from '../../store/auth'
 import {
   addTaskComment, cancelDeadlineRequest, cancelTaskCompletion, completeTask, deleteTask, deleteTaskAttachment, fetchTaskAttachmentBlob, getApproval, getTask,
-  reopenTask, requestDeadlineChange, setTaskProgress, setTaskStatus, uploadTaskAttachment,
+  pauseTaskSession, reopenTask, requestDeadlineChange, startTaskSession, setTaskProgress, setTaskStatus, uploadTaskAttachment,
 } from '../../services/api'
 import type { ApprovalRequest, FileItem, TaskDetailData, TaskHistoryRow } from '../../types'
-import { STATUS_LABEL, STATUS_TONE, TIMELINESS_LABEL, TIMELINESS_TONE, doneClass, dt, err, fmt, initials } from './taskUtils'
+import { STATUS_TONE, statusText, TIMELINESS_LABEL, TIMELINESS_TONE, doneClass, dt, err, fmt, initials } from './taskUtils'
 
 const MAX_FILE = 10 * 1024 * 1024
 const kindLabel: Record<string, string> = { 'n+1': 'atasan', assigned: 'ditugaskan', fallback: 'HR', direct_manager: 'atasan langsung', position: 'jabatan', hr: 'HR', hr_superior: 'atasan HR' }
@@ -68,7 +68,7 @@ export default function TaskDetail({ id, onClose, onChanged, onOpen }: Props) {
           {t.status === 'done' && <div className={`text-sm font-bold ${doneClass(t)}`}>{t.title}</div>}
           <Tabs tabs={[{ id: 'detail', label: 'Detail' }, { id: 'work', label: `Sub Tugas & Lampiran (${d.children.length + d.attachments.length})` }, { id: 'talk', label: `Diskusi (${d.comments.length})` }, { id: 'history', label: `Riwayat (${d.history.length})` }]} value={tab} onChange={setTab} />
           <div className="flex flex-wrap items-center gap-1.5">
-            <Badge tone={STATUS_TONE[t.status]}>{STATUS_LABEL[t.status]}</Badge>
+            <Badge tone={t.running ? 'green' : STATUS_TONE[t.status]}>{statusText(t)}</Badge>
             {t.priority === 'tinggi' && <Badge tone="red"><Flame className="w-3 h-3 inline -mt-0.5" /> Prioritas</Badge>}
             {t.timeliness && <Badge tone={TIMELINESS_TONE[t.timeliness]}>{TIMELINESS_LABEL[t.timeliness]}</Badge>}
             {t.is_parent && <Badge tone="purple">Induk · {t.kids_done}/{t.kids_total} sub tugas selesai</Badge>}
@@ -141,7 +141,7 @@ export default function TaskDetail({ id, onClose, onChanged, onOpen }: Props) {
                 {d.children.map((c) => (
                   <button key={c.id} onClick={() => onOpen(c.id)} className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-sunken">
                     <span className="flex-1 min-w-0"><b className="truncate block">{c.title}</b><span className="text-muted">{c.pic_name}{c.due_date ? ` · ${fmt(c.due_date)}` : ''}{c.is_parent ? ` · ${c.kids_done}/${c.kids_total} sub` : ''}</span></span>
-                    <Badge tone={STATUS_TONE[c.status]}>{STATUS_LABEL[c.status]}</Badge>
+                    <Badge tone={STATUS_TONE[c.status]}>{statusText(c)}</Badge>
                     <div className="w-28"><ProgressBar value={c.progress} small /></div>
                   </button>
                 ))}
@@ -191,9 +191,10 @@ export default function TaskDetail({ id, onClose, onChanged, onOpen }: Props) {
           {error && <div className="text-danger bg-danger-soft rounded-lg px-3 py-2">{error}</div>}
 
           <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-line">
-            {leaf && t.can_work && t.status === 'todo' && <button className="btn" disabled={busy} onClick={() => run(() => setTaskStatus(t.id, 'in_progress'), 'Gagal mengubah status')}>Mulai Dikerjakan</button>}
-            {leaf && t.can_work && t.status === 'in_progress' && t.own_status === 'in_progress' && <button className="btn" disabled={busy} onClick={() => run(() => setTaskStatus(t.id, 'todo'), 'Gagal mengubah status')}>Kembali ke To Do</button>}
-            {leaf && t.can_work && (t.status === 'todo' || t.status === 'in_progress') && <button className="btn-primary" disabled={busy} onClick={() => setCompleting(true)}>Selesaikan{t.requires_approval ? ' & ajukan approval' : ''}</button>}
+            {leaf && t.can_session && !t.running && <button className="btn" disabled={busy} onClick={() => run(() => startTaskSession(t.id), 'Gagal memulai')}><Play className="w-3.5 h-3.5 inline mr-1" />{t.actual_start ? 'Lanjutkan' : 'Mulai'}</button>}
+            {leaf && t.can_session && t.running && <button className="btn" disabled={busy} title="Pause" aria-label="Pause" onClick={() => run(() => pauseTaskSession(t.id), 'Gagal pause')}><Pause className="w-3.5 h-3.5 inline mr-1" />Pause</button>}
+            {leaf && t.can_work && t.status === 'in_progress' && t.own_status === 'in_progress' && !t.running && <button className="btn" disabled={busy} onClick={() => run(() => setTaskStatus(t.id, 'todo'), 'Gagal mengubah status')}>Kembali ke To Do</button>}
+            {leaf && t.can_session && <button className="btn-primary" disabled={busy} onClick={() => setCompleting(true)}>Selesaikan{t.requires_approval ? ' & ajukan approval' : ''}</button>}
             {leaf && t.can_work && t.status === 'review' && <button className="btn" disabled={busy} onClick={() => run(() => cancelTaskCompletion(t.id), 'Gagal membatalkan')}>Batalkan penyelesaian</button>}
             {leaf && t.can_manage && t.status === 'done' && <button className="btn" disabled={busy} onClick={() => { const n = prompt('Alasan membuka kembali tugas (opsional):'); if (n !== null) run(() => reopenTask(t.id, n), 'Gagal membuka kembali') }}>Buka Kembali</button>}
             <span className="flex-1" />

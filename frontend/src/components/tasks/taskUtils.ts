@@ -2,6 +2,8 @@ import type { TaskRow, TaskStatus, Timeliness } from '../../types'
 import { cssColor } from '../../utils/theme'
 
 export const STATUS_LABEL: Record<TaskStatus, string> = { todo: 'To Do', in_progress: 'In Progress', review: 'Menunggu Approval', done: 'Selesai' }
+// A started task shows "Running" while the PIC's timer is on and "On Progress" while it is paused.
+export const statusText = (t: { status: TaskStatus; running?: boolean }) => (t.running ? 'Running' : t.status === 'in_progress' ? 'On Progress' : STATUS_LABEL[t.status])
 export const STATUS_TONE: Record<TaskStatus, 'gray' | 'blue' | 'amber' | 'green'> = { todo: 'gray', in_progress: 'blue', review: 'amber', done: 'green' }
 export const STATUS_BAR: Record<TaskStatus, string> = { todo: cssColor('muted'), in_progress: cssColor('info'), review: cssColor('warn'), done: cssColor('ok') }
 

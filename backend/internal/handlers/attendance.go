@@ -245,6 +245,9 @@ func saveTapRecord(rec *models.AttendanceRecord, kind string, r tapRequest, loc 
 		if err := tx.Save(rec).Error; err != nil {
 			return err
 		}
+		if kind == "out" { // going home pauses whatever is still running
+			closeOpenSessions(tx, 0, r.Emp.ID)
+		}
 		if outside != nil { // outside the radius: file the location approval, the record stays "pending" until it is decided
 			if err := submitLocationApproval(tx, rec, kind, r, outside); err != nil {
 				return err

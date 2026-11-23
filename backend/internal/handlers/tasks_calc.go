@@ -87,20 +87,22 @@ func (c *taskCalc) status(id uint) string {
 }
 
 // counts = direct children and how many of them are done.
-// span: earliest start and latest due among every leaf below a parent (sub tasks at any depth).
-func (c *taskCalc) span(id uint) (start, due *time.Time) {
+// span: earliest start and latest due among every leaf below a parent (sub tasks at any depth), with the planned clock times of those leaves.
+func (c *taskCalc) span(id uint) (start, due *time.Time, startTime, dueTime string) {
 	for _, k := range c.kids[id] {
 		var s, d *time.Time
+		var st, dt string
 		if len(c.kids[k]) > 0 {
-			s, d = c.span(k)
+			s, d, st, dt = c.span(k)
 		} else {
-			s, d = c.tasks[k].StartDate, c.tasks[k].DueDate
+			t := c.tasks[k]
+			s, d, st, dt = t.StartDate, t.DueDate, t.PlanStartTime, t.PlanEndTime
 		}
-		if s != nil && (start == nil || s.Before(*start)) {
-			start = s
+		if s != nil && (start == nil || s.Before(*start) || (s.Equal(*start) && st != "" && (startTime == "" || st < startTime))) {
+			start, startTime = s, st
 		}
-		if d != nil && (due == nil || d.After(*due)) {
-			due = d
+		if d != nil && (due == nil || d.After(*due) || (d.Equal(*due) && dueTime != "" && (dt == "" || dt > dueTime))) {
+			due, dueTime = d, dt
 		}
 	}
 	return

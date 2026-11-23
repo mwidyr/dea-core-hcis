@@ -31,18 +31,13 @@ func closeOpenSessions(tx *gorm.DB, taskID, employeeID uint) {
 	q.Update("ended_at", time.Now())
 }
 
-// canLogSession: the PIC or a member (not a watcher / manager looking in) may log work time.
+// canLogSession: only the PIC logs work time; members, watchers and managers looking in cannot.
 func canLogSession(c *gin.Context, t models.Task) bool {
 	me := myEmployeeID(c)
 	if me == nil {
 		return false
 	}
-	if t.PICID == *me {
-		return true
-	}
-	var n int64
-	database.DB.Model(&models.TaskMember{}).Where("task_id = ? AND employee_id = ? AND role = 'member'", t.ID, *me).Count(&n)
-	return n > 0
+	return t.PICID == *me
 }
 
 func StartTaskSession(c *gin.Context) {
@@ -51,7 +46,7 @@ func StartTaskSession(c *gin.Context) {
 		return
 	}
 	if !canLogSession(c, t) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "hanya PIC atau anggota tugas yang dapat mencatat pengerjaan"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "hanya PIC tugas yang dapat memulai, pause atau menyelesaikan"})
 		return
 	}
 	if calcFor(t.BusinessID).isParent(t.ID) {
@@ -69,7 +64,7 @@ func StartTaskSession(c *gin.Context) {
 		if err := tx.Create(&models.TaskSession{TaskID: t.ID, EmployeeID: me, StartedAt: now}).Error; err != nil {
 			return err
 		}
-		if t.Status == "todo" && t.PICID == me {
+		if t.Status == "todo" {
 			t.Status = "in_progress"
 			logTask(tx, t.ID, uid(c), "status", statusText("todo"), statusText("in_progress"), "dimulai dari Aktivitas")
 		}
@@ -91,7 +86,7 @@ func PauseTaskSession(c *gin.Context) {
 		return
 	}
 	if !canLogSession(c, t) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "hanya PIC atau anggota tugas yang dapat mencatat pengerjaan"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "hanya PIC tugas yang dapat memulai, pause atau menyelesaikan"})
 		return
 	}
 	closeOpenSessions(database.DB, t.ID, *myEmployeeID(c))

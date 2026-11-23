@@ -1,14 +1,14 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Flame } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Flame, Pause, Play } from 'lucide-react'
 import Badge from '../ui/Badge'
 import Pagination, { rowsPerPage } from '../ui/Pagination'
 import ProgressBar from '../ui/ProgressBar'
 import Avatar from '../ui/Avatar'
-import { getHolidays, setTaskStatus } from '../../services/api'
+import { getHolidays, pauseTaskSession, setTaskStatus, startTaskSession } from '../../services/api'
 import { bizParams, useBusinessStore } from '../../store/business'
 import type { TaskRow, TaskStatus } from '../../types'
 import { cssColor } from '../../utils/theme'
-import { STATUS_BAR, STATUS_LABEL, STATUS_TONE, TIMELINESS_LABEL, TIMELINESS_TONE, doneClass, buildTree, type TreeNode, dateOf, dayDiff, flatten, fmt, fmtShort, initials, ymd, err } from './taskUtils'
+import { STATUS_BAR, STATUS_LABEL, STATUS_TONE, statusText, TIMELINESS_LABEL, TIMELINESS_TONE, doneClass, buildTree, type TreeNode, dateOf, dayDiff, flatten, fmt, fmtShort, initials, ymd, err } from './taskUtils'
 const fmtDT = (s: string) => new Date(s).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
 
 export type GroupBy = 'none' | 'unit' | 'project' | 'pic' | 'status'
@@ -23,7 +23,12 @@ export const unitAtLevel = (t: TaskRow, level: number) => {
 }
 const groupKey = (t: TaskRow, g: GroupBy, level = 3) => (g === 'unit' ? unitAtLevel(t, level) || 'Tanpa unit' : g === 'project' ? t.project_name || 'Tanpa proyek' : g === 'pic' ? t.pic_name : g === 'status' ? STATUS_LABEL[t.status] : '')
 
-export function TaskList({ tasks, onOpen, groupBy, unitLevel = 3 }: ViewProps & { groupBy: GroupBy; unitLevel?: number }) {
+export function TaskList({ tasks, onOpen, groupBy, unitLevel = 3, onChanged }: ViewProps & { groupBy: GroupBy; unitLevel?: number; onChanged?: () => void }) {
+  const [busyId, setBusyId] = useState(0)
+  const toggle = async (t: TaskRow) => {
+    setBusyId(t.id)
+    try { await (t.running ? pauseTaskSession(t.id) : startTaskSession(t.id)); onChanged?.() } catch (e: any) { alert(err(e, 'Gagal mengubah sesi tugas')) } finally { setBusyId(0) }
+  }
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   // children stay directly under their own parent (tree order inside each group); a child whose parent is filtered out shows as its own root
@@ -70,7 +75,12 @@ export function TaskList({ tasks, onOpen, groupBy, unitLevel = 3 }: ViewProps & 
                       {t.actual_start ? <><div>{fmtDT(t.actual_start)}</div><div className="text-muted">→ {t.completed_at ? fmtDT(t.completed_at) : 'berjalan'}</div></> : <span className="text-muted">–</span>}
                     </td>
                     <td className="td">{t.timeliness ? <Badge tone={TIMELINESS_TONE[t.timeliness]}>{TIMELINESS_LABEL[t.timeliness]}</Badge> : <span className="text-muted">–</span>}</td>
-                    <td className="td"><Badge tone={STATUS_TONE[t.status]}>{STATUS_LABEL[t.status]}</Badge></td>
+                    <td className="td">
+                      <div className="flex items-center gap-1.5">
+                        <Badge tone={t.running ? 'green' : STATUS_TONE[t.status]}>{statusText(t)}</Badge>
+                        {t.can_session && <button className="p-1 rounded-md border border-line hover:bg-sunken disabled:opacity-50" disabled={busyId === t.id} title={t.running ? 'Pause' : t.actual_start ? 'Lanjutkan' : 'Mulai'} aria-label={t.running ? 'Pause' : 'Mulai'} onClick={(e) => { e.stopPropagation(); toggle(t) }}>{t.running ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}</button>}
+                      </div>
+                    </td>
                     <td className="td w-40"><ProgressBar value={t.progress} small /></td>
                   </tr>
                 </Fragment>
