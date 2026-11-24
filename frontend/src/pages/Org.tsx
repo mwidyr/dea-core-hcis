@@ -3,6 +3,7 @@ import { Maximize2, Minus, Plus, ZoomIn } from 'lucide-react'
 import Layout from '../components/Layout/Layout'
 import Tabs from '../components/ui/Tabs'
 import Badge from '../components/ui/Badge'
+import Avatar from '../components/ui/Avatar'
 import Modal from '../components/ui/Modal'
 import DataTable from '../components/ui/DataTable'
 import { useAuthStore } from '../store/auth'
@@ -12,7 +13,7 @@ import type { Business, Location, OrgUnit, Position } from '../types'
 
 type Tab = 'businesses' | 'units' | 'positions' | 'locations' | 'chart'
 // Order = seniority; the org chart puts each class on its own aligned row in this order.
-const LEVEL_CLASSES = ['Komisaris', 'Direksi', 'General Manager / Business Head', 'Manager / Head', 'Supervisor', 'Coordinator / Team Lead', 'Staff', 'Non Staff', 'Magang']
+const LEVEL_CLASSES = ['Komisaris', 'Direksi', 'General Manager / Business Head', 'Manager / Head', 'Project Manager', 'Supervisor', 'Coordinator / Team Lead', 'Staff', 'Non Staff', 'Magang']
 
 export default function Org() {
   const { businessId, businesses, refresh } = useBusinessStore()
@@ -218,7 +219,7 @@ function OrgChart({ positions, businesses }: { positions: Position[]; businesses
 }
 
 // ---- org chart: one row per level class so positions of the same level line up on a guide line ----
-const NODE_W = 170, NODE_H = 76, SLOT = 196, ROW = 128, GUTTER = 150, PAD = 24
+const NODE_W = 176, NODE_H = 96, SLOT = 200, ROW = 148, GUTTER = 150, PAD = 24
 const levelRank = (cls: string) => { const i = LEVEL_CLASSES.indexOf(cls); return i < 0 ? LEVEL_CLASSES.indexOf('Staff') : i }
 
 interface Placed { p: Position; x: number; row: number }
@@ -301,8 +302,11 @@ function BusinessChart({ biz, positions, zoom, resetKey }: { biz: Business; posi
             </svg>
             {[...placed.values()].map(({ p, x, row }) => (
               <div key={p.id} className="org-node !block !max-w-none text-center overflow-hidden" style={{ position: 'absolute', left: cx(x) - NODE_W / 2, top: top(row), width: NODE_W, height: NODE_H }}>
-                <div className="text-xs font-bold leading-tight line-clamp-2">{p.title}</div>
-                <div className="text-[10.5px] mt-0.5 truncate text-muted">{p.holder === 'Vacant' ? '-' : p.holder}</div>
+                <div className="text-xs font-bold leading-tight line-clamp-2 text-info">{p.title}</div>
+                {p.holder === 'Vacant' ? <div className="text-[11px] mt-1 font-bold text-warn">Vacant</div>
+                  : p.holder_id ? <div className="mt-1 flex items-center justify-center gap-1.5 min-w-0"><Avatar empId={p.holder_id} name={p.holder ?? ''} version={p.holder_avatar} size={18} /><span className="text-[11px] font-extrabold text-ok truncate">{p.holder}</span></div>
+                  : <div className="text-[11px] mt-1 text-muted">{p.holder}</div>}
+                {p.holder_note && <div className="text-[9.5px] font-semibold text-danger truncate">{p.holder_note}</div>}
                 <div className="text-[9.5px] text-muted truncate">{p.unit?.name}</div>
               </div>
             ))}

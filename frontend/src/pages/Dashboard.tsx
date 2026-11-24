@@ -102,10 +102,14 @@ export default function Dashboard() {
     )
   }
 
+  const monthNote = (m?: { late: number; izin: number; cuti: number; sakit: number }) => {
+    const parts = m ? ([[m.late, 'telat'], [m.izin, 'izin'], [m.cuti, 'cuti'], [m.sakit, 'sakit']] as [number, string][]).filter(([n]) => n > 0).map(([n, l]) => `${n} ${l}`) : []
+    return parts.length ? parts.join(', ') : 'tepat waktu, tanpa izin/cuti/sakit'
+  }
   const kpis = mine && p ? [
     { label: 'Absensi Hari Ini', value: p.attendance_today.status, foot: p.attendance_today.check_in ? `Masuk ${hm(p.attendance_today.check_in)}${p.attendance_today.check_out ? ` · pulang ${hm(p.attendance_today.check_out)}` : ''}` : 'Belum tap in' },
     { label: 'Task Open Saya', value: d.me.open_tasks, foot: <><span className={d.me.overdue_tasks > 0 ? 'text-danger font-bold' : ''}>{d.me.overdue_tasks} overdue</span> · {d.tasks.due_week} due minggu ini</> },
-    { label: 'Sisa Cuti', value: `${p.leave.remaining} hari`, foot: `terpakai ${p.leave.used} · menunggu ${p.leave.pending}` },
+    { label: 'Absensi Bulan Ini', value: `${p.attendance_month?.present ?? 0} kerja`, foot: monthNote(p.attendance_month) },
     { label: 'Approval Menunggu', value: d.me.pending_approvals, foot: p.pending_leave_mine ? `${p.pending_leave_mine} pengajuan cuti Anda diproses` : 'untuk keputusan Anda' },
     { label: 'Skor KPI Saya', value: <span className={kpiTone(k.scored ? k.average : null, good, attn)}>{k.scored ? `${k.average}%` : '–'}</span>, foot: `Periode ${k.period}` },
   ] : [

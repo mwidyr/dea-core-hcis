@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/dea-core/hcis/backend/internal/database"
 	"github.com/dea-core/hcis/backend/internal/models"
@@ -52,24 +54,28 @@ func ListPositions(c *gin.Context) {
 	// attach holders
 	type row struct {
 		models.Position
-		Holder string `json:"holder"`
+		Holder       string `json:"holder"`
+		HolderID     uint   `json:"holder_id,omitempty"`
+		HolderAvatar int64  `json:"holder_avatar,omitempty"`
+		HolderNote   string `json:"holder_note,omitempty"` // e.g. "habis kontrak -10 hari"
 	}
-	holders := map[uint]string{}
-	var emps []models.Employee
-	// people who left (status not Aktif) or whose contract has ended no longer fill a position in the chart
-	database.DB.Select("id,name,position_id").Where("position_id IS NOT NULL AND status = 'Aktif' AND (contract_end IS NULL OR contract_end >= CURRENT_DATE)").Find(&emps)
-	for _, e := range emps {
-		holders[*e.PositionID] = e.Name
-	}
-	// additional (multi-business) placements also fill a position
-	type pl struct {
+	type who struct {
 		PositionID uint
+		ID         uint
 		Name       string
+		End        *time.Time
+		Avatar     int64
+		Has        bool
 	}
-	var pls []pl
-	database.DB.Raw("SELECT p.position_id, e.name FROM employee_placements p JOIN employees e ON e.id = p.employee_id WHERE e.status = 'Aktif' AND (e.contract_end IS NULL OR e.contract_end >= CURRENT_DATE)").Scan(&pls)
-	for _, x := range pls {
-		holders[x.PositionID] = x.Name
+	holders := map[uint]who{}
+	// only people whose status is "Tidak Bekerja" leave the chart; an ended contract stays visible with a note.
+	// Extra (multi-business) placements also fill a position.
+	var ws []who
+	database.DB.Raw(`SELECT e.position_id, e.id, e.name, e.contract_end AS "end", e.avatar_at AS avatar, (e.avatar_path <> '') AS has FROM employees e WHERE e.position_id IS NOT NULL AND e.status = 'Aktif'
+		UNION ALL
+		SELECT p.position_id, e.id, e.name, e.contract_end, e.avatar_at, (e.avatar_path <> '') FROM employee_placements p JOIN employees e ON e.id = p.employee_id WHERE e.status = 'Aktif'`).Scan(&ws)
+	for _, w := range ws {
+		holders[w.PositionID] = w
 	}
 	// non group-level callers only learn the holder when that person is themself or in their downline
 	var visible map[string]bool
@@ -83,15 +89,22 @@ func ListPositions(c *gin.Context) {
 	}
 	out := make([]row, 0, len(l))
 	for _, p := range l {
-		h := holders[p.ID]
-		masked := visible != nil && h != "" && !visible[h]
-		if masked {
-			h = "-"
+		w, filled := holders[p.ID]
+		r := row{Position: p, Holder: "Vacant"}
+		switch {
+		case !filled:
+		case visible != nil && !visible[w.Name]:
+			r.Holder = "-"
+		default:
+			r.Holder, r.HolderID = w.Name, w.ID
+			if w.Has {
+				r.HolderAvatar = w.Avatar
+			}
+			if w.End != nil && day(*w.End).Before(today()) {
+				r.HolderNote = fmt.Sprintf("habis kontrak -%d hari", int(today().Sub(day(*w.End)).Hours()/24))
+			}
 		}
-		if h == "" {
-			h = "Vacant"
-		}
-		out = append(out, row{p, h})
+		out = append(out, r)
 	}
 	c.JSON(http.StatusOK, out)
 }

@@ -118,7 +118,7 @@ export default function Employees() {
                     <td className="td">{e.position?.title ?? '-'}</td>
                     <td className="td">{e.location?.name ?? '-'}</td>
                     <td className="td">{tenure(e.join_date)}</td>
-                    <td className="td">{e.contract_end ? <>{e.employee_type === 'Freelance' ? 'Freelance' : 'PKWT'} · s.d. {fmt(e.contract_end)} <Badge tone={dl! <= 30 ? 'red' : 'amber'}>{dl} hari lagi</Badge></> : <Badge tone="green">{e.employee_type}</Badge>}</td>
+                    <td className="td">{e.contract_end ? <>{e.employee_type === 'Freelance' ? 'Freelance' : 'PKWT'} · s.d. {fmt(e.contract_end)} {e.status !== 'Tidak Bekerja' && <Badge tone={dl! <= 30 ? 'red' : 'amber'}>{dl! < 0 ? 'berakhir' : `${dl} hari lagi`}</Badge>}</> : <Badge tone="green">{e.employee_type}</Badge>}</td>
                     <td className="td">{extra.length ? extra.map((p) => `${p.business?.name} — ${p.position?.title}`).join(', ') : '—'}</td>
                     <td className="td"><Badge tone={statusTone[e.status] ?? 'gray'}>{e.status}</Badge></td>
                     <td className="td whitespace-nowrap">

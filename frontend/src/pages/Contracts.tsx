@@ -49,7 +49,7 @@ export default function Contracts() {
   }
   const missing = (e: Employee) => CHECKLIST.filter((c) => !done(e, c)).map((c) => c.key)
   const rows = useMemo(() => emps.filter((e) => {
-    const d = daysLeft(e.contract_end)
+    const d = e.status === 'Tidak Bekerja' ? null : daysLeft(e.contract_end) // someone who left has no contract countdown
     if (fContract === 'tetap' && e.employee_type !== 'Tetap') return false
     if (fContract === 'expired' && !(d !== null && d < 0)) return false
     if (/^\d+$/.test(fContract) && !(d !== null && d >= 0 && d <= Number(fContract))) return false
@@ -58,8 +58,9 @@ export default function Contracts() {
     return true
   }), [emps, labels, fContract, fDocs])
 
-  const soon = emps.filter((e) => { const d = daysLeft(e.contract_end); return d !== null && d >= 0 && d <= 30 }).length
-  const expired = emps.filter((e) => { const d = daysLeft(e.contract_end); return d !== null && d < 0 }).length
+  const live = emps.filter((e) => e.status !== 'Tidak Bekerja')
+  const soon = live.filter((e) => { const d = daysLeft(e.contract_end); return d !== null && d >= 0 && d <= 30 }).length
+  const expired = live.filter((e) => { const d = daysLeft(e.contract_end); return d !== null && d < 0 }).length
   const incomplete = emps.filter((e) => missing(e).length).length
 
   return (
@@ -81,7 +82,7 @@ export default function Contracts() {
             columns={[
               { head: 'Karyawan', sortValue: (e) => e.name, render: (e) => <div><b>{e.name}</b><div className="text-muted text-[11px]">{e.position?.title ?? '-'} · {e.business?.name}</div></div> },
               { head: 'Status Kerja', sortValue: (e) => e.employee_type, render: (e) => <Badge tone={e.employee_type === 'Tetap' ? 'green' : 'amber'}>{e.employee_type}</Badge> },
-              { head: 'Kontrak Berakhir', sortValue: (e) => (e.contract_end ? new Date(e.contract_end).getTime() : null), render: (e) => { const d = daysLeft(e.contract_end); return e.contract_end ? <>{fmt(e.contract_end)} <Badge tone={d! < 0 ? 'red' : d! <= 30 ? 'red' : 'amber'}>{d! < 0 ? 'berakhir' : `${d} hari lagi`}</Badge></> : '-' } },
+              { head: 'Kontrak Berakhir', sortValue: (e) => (e.contract_end ? new Date(e.contract_end).getTime() : null), render: (e) => { const d = daysLeft(e.contract_end); return e.contract_end ? <>{fmt(e.contract_end)} {e.status !== 'Tidak Bekerja' && <Badge tone={d! < 0 ? 'red' : d! <= 30 ? 'red' : 'amber'}>{d! < 0 ? 'berakhir' : `${d} hari lagi`}</Badge>}</> : '-' } },
               { head: 'Riwayat', render: (e: Employee) => e.contracts?.length ? <button className="btn" onClick={() => setOpenEmp(e)}>{e.contracts.length} kontrak</button> : <span className="text-muted">-</span> },
               ...CHECKLIST.map((c) => ({ head: c.key, render: (e: Employee) => done(e, c) ? <Check className="w-4 h-4 text-ok" /> : <X className="w-4 h-4 text-danger" /> })),
               { head: 'Kelengkapan', render: (e: Employee) => missing(e).length ? <Badge tone="amber">Kurang {missing(e).length}</Badge> : <Badge tone="green">Lengkap</Badge> },

@@ -316,6 +316,12 @@ func personalBlock(c *gin.Context, ts []models.Task, calcs map[uint]*taskCalc, n
 		}
 	}
 	out["attendance_today"] = att
+	// attendance this month: days worked and the note beneath it
+	first := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, jkt)
+	if rr := buildRecap([]models.Employee{emp}, first, first.AddDate(0, 1, -1)); len(rr) > 0 {
+		m := rr[0]
+		out["attendance_month"] = gin.H{"present": m.Present - m.WorkedOff, "late": m.Late, "izin": m.Izin, "cuti": m.Cuti, "sakit": m.Sakit, "absent": m.Absent}
+	}
 	// leave balance
 	year := now.Year()
 	var rosterN int64

@@ -9,7 +9,7 @@ export interface User {
   no_attendance?: boolean // Direksi / Komisaris: no attendance
 }
 export interface OrgUnit { id: number; business_id: number; level: number; type_name: string; name: string; parent_id: number | null; is_active: boolean; parent?: OrgUnit }
-export interface Position { id: number; business_id: number; title: string; unit_id: number | null; level_class: string; reports_to_id: number | null; unit?: OrgUnit; holder?: string }
+export interface Position { id: number; business_id: number; title: string; unit_id: number | null; level_class: string; reports_to_id: number | null; unit?: OrgUnit; holder?: string; holder_id?: number; holder_avatar?: number; holder_note?: string }
 export interface Location { id: number; business_id: number; name: string; type_name: string; city: string; latitude: number | null; longitude: number | null; radius_m: number; is_active: boolean }
 export interface Placement { id: number; is_primary: boolean; position?: Position; business?: Business }
 export interface Employee {
@@ -176,6 +176,7 @@ export interface DashboardData {
   personal?: {
     linked: boolean; name: string; position?: string; pending_leave_mine: number
     attendance_today: { status: string; check_in?: string; check_out?: string; late_minutes?: number; work_minutes?: number }
+    attendance_month?: { present: number; late: number; izin: number; cuti: number; sakit: number; absent: number }
     leave: { remaining: number; used: number; pending: number; initial: number }
     my_tasks: { id: number; title: string; project: string; due: string; status: string; timeliness: string; timeliness_label: string; progress: number }[]
   }
