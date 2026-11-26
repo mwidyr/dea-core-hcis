@@ -116,7 +116,7 @@ export default function Employees() {
                     <td className="td"><div className="flex items-center gap-2.5"><Avatar empId={e.id} name={e.name} version={e.avatar} size={34} /><div className="min-w-0"><b>{e.name}</b>{e.nik && <div className="text-muted text-[11px]">{e.nik}</div>}</div></div></td>
                     <td className="td">{e.business?.name}</td>
                     <td className="td">{e.position?.title ?? '-'}</td>
-                    <td className="td">{e.location?.name ?? '-'}</td>
+                    <td className="td">{e.roster?.location_name || e.location?.name || '-'}</td>
                     <td className="td">{tenure(e.join_date)}</td>
                     <td className="td">{e.contract_end ? <>{e.employee_type === 'Freelance' ? 'Freelance' : 'PKWT'} · s.d. {fmt(e.contract_end)} {e.status !== 'Tidak Bekerja' && <Badge tone={dl! <= 30 ? 'red' : 'amber'}>{dl! < 0 ? 'berakhir' : `${dl} hari lagi`}</Badge>}</> : <Badge tone="green">{e.employee_type}</Badge>}</td>
                     <td className="td">{extra.length ? extra.map((p) => `${p.business?.name} — ${p.position?.title}`).join(', ') : '—'}</td>
@@ -147,7 +147,7 @@ export default function Employees() {
             {detailTab === 'personal' && <>
             <div className="flex flex-col-reverse sm:flex-row gap-5 items-start">
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs flex-1 min-w-0">
-              {[['Bisnis', detail.business?.name], ['Unit', detail.unit?.name], ['Jabatan', detail.position?.title], ['Lokasi', detail.location?.name],
+              {[['Bisnis', detail.business?.name], ['Unit', detail.unit?.name], ['Jabatan', detail.position?.title], ['Lokasi', detail.roster?.location_name || detail.location?.name],
                 ['NIK', detail.nik], ['Email', detail.email], ['Telepon', detail.phone], ['Tempat, Tgl Lahir', detail.birth_place || detail.birth_date ? `${detail.birth_place || '-'}, ${fmt(detail.birth_date)}` : '-'],
                 ['Jenis', detail.employee_type], ['Tanggal Masuk', fmt(detail.join_date)], ['Kontrak Berakhir', fmt(detail.contract_end)],
                 ['Atasan (n+1)', managerName], ['Penempatan', detail.placements?.length ? detail.placements.map((p) => `${p.business?.name}: ${p.position?.title}${p.is_primary ? ' (utama)' : ''}`).join(' · ') : '-'], ['DOH (Tanggal Masuk Pertama)', fmt(detail.doh)], ['POH (Lokasi Perekrutan)', detail.place_of_hire], ['Masa Kerja', tenure(detail.doh)], ['Status', detail.status + (detail.status_note ? ` — ${detail.status_note}` : '')]].map(([k, v]) => (

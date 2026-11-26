@@ -121,7 +121,9 @@ func ListEmployees(c *gin.Context) {
 		q = q.Where("employees.employee_type = ?", v)
 	}
 	if v := c.Query("location_id"); v != "" && v != "0" {
-		q = q.Where("employees.location_id = ?", v)
+		// the effective work location: a roster's location wins over the one on the employee record
+		q = q.Where(`COALESCE((SELECT r.location_id FROM roster_assignments a JOIN rosters r ON r.id = a.roster_id
+			WHERE a.employee_id = employees.id AND r.is_active = true AND r.location_id IS NOT NULL LIMIT 1), employees.location_id) = ?`, v)
 	}
 	if v := c.Query("status"); v != "" {
 		q = q.Where("employees.status = ?", v)
