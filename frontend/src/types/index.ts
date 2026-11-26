@@ -64,7 +64,7 @@ export interface Holiday { id: number; date: string; name: string; business_id: 
 export interface FileItem { id: number; label: string; file_name: string; mime_type: string; size: number; drive_status?: string; drive_error?: string }
 export interface LeaveCalc { days: number; skipped: { date: string; name: string; deducts_leave: boolean }[]; error?: string }
 
-export interface WorkCalendar { id: number; business_id: number; name: string; work_days: string; start_time: string; end_time: string; break_start: string; break_end: string; tolerance_min: number; require_gps: boolean; is_default: boolean; is_active: boolean; employee_count?: number }
+export interface WorkCalendar { id: number; business_id: number; name: string; work_days: string; start_time: string; end_time: string; break_start: string; break_end: string; tolerance_min: number; require_gps: boolean; day_hours?: string; is_default: boolean; is_active: boolean; employee_count?: number }
 export interface Roster { id: number; business_id: number; name: string; work_units: number; off_units: number; unit: 'hari' | 'minggu'; location_id: number | null; start_time: string; end_time: string; break_start: string; break_end: string; tolerance_min: number; require_gps: boolean; start_cycle: string; is_active: boolean; pattern?: string; employee_count?: number; employee_ids?: number[]; members?: { employee_id: number; start_cycle: string }[] }
 export type AttStatus = 'Menunggu Approval Lokasi' | 'Hadir' | 'Terlambat' | 'Belum Absen' | 'Tidak Hadir' | 'Cuti' | 'Izin' | 'Sakit' | 'OFF' | 'Libur' | 'Terjadwal'
 export interface AttRow {

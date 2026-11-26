@@ -344,7 +344,8 @@ type WorkCalendar struct {
 	BreakEnd     string `json:"break_end"`
 	ToleranceMin int    `json:"tolerance_min"` // late only after start + tolerance
 	RequireGPS   bool   `json:"require_gps"`
-	IsDefault    bool   `json:"is_default"` // applies to employees without their own calendar or roster
+	DayHours     string `gorm:"type:text" json:"day_hours"` // optional per-weekday hours, JSON {"6":{"start":"08:00","end":"14:00","break_start":"","break_end":""}}; other days use the times above
+	IsDefault    bool   `json:"is_default"`                 // applies to employees without their own calendar or roster
 	IsActive     bool   `gorm:"default:true" json:"is_active"`
 }
 

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -148,7 +149,34 @@ func (r *resolver) schedule(emp models.Employee, d time.Time) Sched {
 	} else if hasDay(cal.WorkDays, day(d).Weekday()) {
 		s.Status = "kerja"
 	}
+	if h, ok := dayHoursOf(cal, day(d).Weekday()); ok { // e.g. a half-day Saturday
+		s.Start, s.End, s.BreakStart, s.BreakEnd = h.Start, h.End, h.BreakStart, h.BreakEnd
+	}
 	return s
+}
+
+// dayHours = one weekday's own working hours inside a calendar.
+type dayHours struct {
+	Start      string `json:"start"`
+	End        string `json:"end"`
+	BreakStart string `json:"break_start"`
+	BreakEnd   string `json:"break_end"`
+}
+
+func parseDayHours(raw string) map[string]dayHours {
+	m := map[string]dayHours{}
+	if strings.TrimSpace(raw) != "" {
+		_ = json.Unmarshal([]byte(raw), &m)
+	}
+	return m
+}
+
+func dayHoursOf(cal models.WorkCalendar, wd time.Weekday) (dayHours, bool) {
+	if cal.DayHours == "" {
+		return dayHours{}, false
+	}
+	h, ok := parseDayHours(cal.DayHours)[strconv.Itoa(int(wd))]
+	return h, ok && h.Start != "" && h.End != ""
 }
 
 // calendarFor = the employee's work calendar, else the business default, else a Mon–Fri office default.
@@ -311,6 +339,24 @@ func SaveWorkCalendar(c *gin.Context) {
 		return
 	}
 	in.WorkDays = strings.Join(days, ",")
+	// per-day hours: only for chosen work days, every time well-formed, and the day must end after it starts
+	clean := map[string]dayHours{}
+	for k, h := range parseDayHours(in.DayHours) {
+		n, err := strconv.Atoi(k)
+		if err != nil || !hasDay(in.WorkDays, time.Weekday(n)) {
+			continue
+		}
+		if !hhmm.MatchString(h.Start) || !hhmm.MatchString(h.End) || !validTimes(h.BreakStart, h.BreakEnd) || h.End <= h.Start {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "jam khusus per hari harus berformat HH:MM dan jam pulang setelah jam masuk"})
+			return
+		}
+		clean[k] = h
+	}
+	in.DayHours = ""
+	if len(clean) > 0 {
+		b, _ := json.Marshal(clean)
+		in.DayHours = string(b)
+	}
 	in.ID = paramID(c)
 	if in.ID != 0 {
 		var old models.WorkCalendar

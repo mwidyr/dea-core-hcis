@@ -150,6 +150,14 @@ export default function Schedule() {
 
 // ---------------------------------------------------------------- Kalender Kerja
 const DAYS = [['1', 'Sen'], ['2', 'Sel'], ['3', 'Rab'], ['4', 'Kam'], ['5', 'Jum'], ['6', 'Sab'], ['0', 'Min']]
+type DayH = { start: string; end: string; break_start: string; break_end: string }
+const parseDH = (raw?: string): Record<string, DayH> => { try { return raw ? JSON.parse(raw) : {} } catch { return {} } }
+const hoursText = (c: WorkCalendar) => {
+  const dh = parseDH(c.day_hours)
+  const groups = new Map<string, string[]>()
+  DAYS.filter(([n]) => c.work_days.split(',').includes(n)).forEach(([n, l]) => { const h = dh[n]; const k = h ? `${h.start} – ${h.end}` : `${c.start_time} – ${c.end_time}`; groups.set(k, [...(groups.get(k) ?? []), l]) })
+  return groups.size <= 1 ? `${c.start_time} – ${c.end_time}` : [...groups].map(([k, ds]) => `${ds.length > 1 ? `${ds[0]}–${ds[ds.length - 1]}` : ds[0]} ${k}`).join(' · ')
+}
 const dayNames = (wd: string) => DAYS.filter(([n]) => wd.split(',').includes(n)).map(([, l]) => l).join(', ')
 const err = (e: any, f: string) => e.response?.data?.error || f
 
@@ -185,7 +193,7 @@ function Calendars() {
           { head: 'Nama Kalender', render: (c) => <div><b>{c.name}</b>{c.is_default && <> <Badge tone="blue">Default</Badge></>}</div> },
           { head: 'Berlaku Untuk', render: (c) => <div>{bizName(c.business_id)}<div className="text-muted text-[11px]">{c.employee_count ?? 0} karyawan</div></div> },
           { head: 'Hari Kerja', render: (c) => dayNames(c.work_days) },
-          { head: 'Jam Kerja', render: (c) => `${c.start_time} – ${c.end_time}` },
+          { head: 'Jam Kerja', render: (c) => hoursText(c) },
           { head: 'Istirahat', render: (c) => (c.break_start && c.break_end ? `${c.break_start} – ${c.break_end}` : '-') },
           { head: 'Toleransi', render: (c) => `${c.tolerance_min} menit` },
           { head: 'Kebijakan', render: (c) => (c.require_gps ? <Badge tone="green">GPS wajib</Badge> : <Badge>Tanpa GPS</Badge>) },
@@ -206,6 +214,28 @@ function Calendars() {
               <label className="block font-semibold">Jam pulang<input className="input w-full mt-1" type="time" value={edit.end_time} onChange={(e) => setEdit({ ...edit, end_time: e.target.value })} /></label>
               <label className="block font-semibold">Istirahat mulai<input className="input w-full mt-1" type="time" value={edit.break_start} onChange={(e) => setEdit({ ...edit, break_start: e.target.value })} /></label>
               <label className="block font-semibold">Istirahat selesai<input className="input w-full mt-1" type="time" value={edit.break_end} onChange={(e) => setEdit({ ...edit, break_end: e.target.value })} /></label>
+            </div>
+            <div>
+              <div className="font-semibold mb-1">Jam khusus per hari <span className="font-normal text-muted">(opsional, mis. Sabtu setengah hari)</span></div>
+              <div className="space-y-1.5">
+                {DAYS.filter(([n]) => edit.work_days.split(',').includes(n)).map(([n, l]) => {
+                  const dh = parseDH(edit.day_hours), h = dh[n]
+                  const setH = (v: DayH | null) => { const next = { ...dh }; if (v) next[n] = v; else delete next[n]; setEdit({ ...edit, day_hours: Object.keys(next).length ? JSON.stringify(next) : '' }) }
+                  const put = (k: keyof DayH, val: string) => setH({ ...h, [k]: val })
+                  return (
+                    <div key={n} className="flex flex-wrap items-center gap-2">
+                      <label className="flex items-center gap-1.5 w-28"><input type="checkbox" checked={!!h} onChange={(e) => setH(e.target.checked ? { start: edit.start_time, end: edit.end_time, break_start: edit.break_start, break_end: edit.break_end } : null)} />{l} berbeda</label>
+                      {h && <>
+                        <input className="input w-[104px]" type="time" aria-label={`${l} jam masuk`} value={h.start} onChange={(e) => put('start', e.target.value)} />–
+                        <input className="input w-[104px]" type="time" aria-label={`${l} jam pulang`} value={h.end} onChange={(e) => put('end', e.target.value)} />
+                        <span className="text-muted">istirahat</span>
+                        <input className="input w-[104px]" type="time" aria-label={`${l} istirahat mulai`} value={h.break_start} onChange={(e) => put('break_start', e.target.value)} />–
+                        <input className="input w-[104px]" type="time" aria-label={`${l} istirahat selesai`} value={h.break_end} onChange={(e) => put('break_end', e.target.value)} />
+                      </>}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
             <label className="block font-semibold">Toleransi keterlambatan (menit)<input className="input w-full mt-1" type="number" min={0} max={240} value={edit.tolerance_min} onChange={(e) => setEdit({ ...edit, tolerance_min: Number(e.target.value) })} /></label>
             <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={edit.require_gps} onChange={(e) => setEdit({ ...edit, require_gps: e.target.checked })} />Wajib GPS (absen hanya di radius lokasi kerja)</label>
