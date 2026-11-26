@@ -115,7 +115,8 @@ func ListEmployees(c *gin.Context) {
 		q = q.Where("employees.name ILIKE ? OR employees.email ILIKE ? OR employees.nik ILIKE ? OR employees.position_id IN (SELECT id FROM positions WHERE title ILIKE ?)", like, like, like, like)
 	}
 	if v := c.Query("unit_id"); v != "" {
-		q = q.Where("employees.unit_id = ?", v)
+		// a unit includes everything below it in the organisation tree
+		q = q.Where(`employees.unit_id IN (WITH RECURSIVE t AS (SELECT id FROM org_units WHERE id = ? UNION ALL SELECT u.id FROM org_units u JOIN t ON u.parent_id = t.id) SELECT id FROM t)`, v)
 	}
 	if v := c.Query("employee_type"); v != "" {
 		q = q.Where("employees.employee_type = ?", v)
@@ -131,9 +132,11 @@ func ListEmployees(c *gin.Context) {
 	var total int64
 	q.Count(&total)
 	// stats cover the whole business scope, independent of search/filter/page
-	base := hierarchyScope(c, employeeBizScope(c, database.DB.Model(&models.Employee{}))).Where("employees.status = 'Aktif'")
-	var active, tetap, kontrak, freelance, multi, expiring int64
+	scoped := hierarchyScope(c, employeeBizScope(c, database.DB.Model(&models.Employee{})))
+	base := scoped.Session(&gorm.Session{}).Where("employees.status = 'Aktif'")
+	var active, inactive, tetap, kontrak, freelance, multi, expiring int64
 	base.Count(&active)
+	scoped.Session(&gorm.Session{}).Where("employees.status <> 'Aktif'").Count(&inactive)
 	base.Session(&gorm.Session{}).Where("employees.employee_type = ?", "Tetap").Count(&tetap)
 	base.Session(&gorm.Session{}).Where("employees.employee_type = ?", "Kontrak").Count(&kontrak)
 	base.Session(&gorm.Session{}).Where("employees.employee_type = ?", "Freelance").Count(&freelance)
@@ -162,7 +165,7 @@ func ListEmployees(c *gin.Context) {
 	}
 	fillRosters(ptrs)
 	c.JSON(http.StatusOK, gin.H{"data": l, "total": total, "page": page, "page_size": size,
-		"stats": gin.H{"active": active, "tetap": tetap, "kontrak": kontrak, "freelance": freelance, "multi": multi, "expiring": expiring}})
+		"stats": gin.H{"active": active, "inactive": inactive, "tetap": tetap, "kontrak": kontrak, "freelance": freelance, "multi": multi, "expiring": expiring}})
 }
 
 // employeeOrder maps the whitelisted ?sort= / ?dir= to an ORDER BY. Default: name A–Z.

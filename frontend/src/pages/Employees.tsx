@@ -14,9 +14,9 @@ import EmployeePhoto from '../components/employee/EmployeePhoto'
 import Avatar from '../components/ui/Avatar'
 import { useAuthStore } from '../store/auth'
 import { bizParams, useBusinessStore } from '../store/business'
-import { deleteEmployee, getEmployee, getEmployees, getLocations, setEmployeeStatus } from '../services/api'
+import { deleteEmployee, getEmployee, getEmployees, getLocations, getUnits, setEmployeeStatus } from '../services/api'
 import { daysLeft, errMsg, fmt, tenure } from '../utils/format'
-import type { Employee, Location } from '../types'
+import type { Employee, Location, OrgUnit } from '../types'
 
 const STATUSES = ['Aktif', 'Non aktif', 'Suspend', 'Tidak Bekerja'] as const
 const statusTone = { Aktif: 'green', 'Non aktif': 'blue', Suspend: 'amber', 'Tidak Bekerja': 'gray' } as const
@@ -29,10 +29,12 @@ export default function Employees() {
   const [total, setTotal] = useState(0)
   const [q, setQ] = useState('')
   const [type, setType] = useState('')
-  const [status, setStatus] = useState('')
+  const [status, setStatus] = useState('Aktif') // active staff first; pick another status or 'Semua Status' to see the rest
+  const [unitId, setUnitId] = useState('')
+  const [units, setUnits] = useState<OrgUnit[]>([])
   const [locationId, setLocationId] = useState('')
   const [locations, setLocations] = useState<Location[]>([])
-  const [stats, setStats] = useState({ active: 0, tetap: 0, kontrak: 0, freelance: 0, multi: 0, expiring: 0 })
+  const [stats, setStats] = useState({ active: 0, inactive: 0, tetap: 0, kontrak: 0, freelance: 0, multi: 0, expiring: 0 })
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [sort, setSort] = useState<{ col: 'name' | 'tenure' | 'contract_end'; dir: 'asc' | 'desc' }>({ col: 'name', dir: 'asc' }) // default: nama A–Z
@@ -44,15 +46,16 @@ export default function Employees() {
   const [statusEdit, setStatusEdit] = useState<{ emp: Employee; status: string; note: string } | null>(null)
 
   const load = () => {
-    getEmployees({ ...bizParams(businessId), q: q || undefined, employee_type: type || undefined, status: status || undefined, location_id: locationId || undefined, page, page_size: pageSize, sort: sort.col, dir: sort.dir }).then((r) => {
+    getEmployees({ ...bizParams(businessId), q: q || undefined, employee_type: type || undefined, status: status || undefined, location_id: locationId || undefined, unit_id: unitId || undefined, page, page_size: pageSize, sort: sort.col, dir: sort.dir }).then((r) => {
       setList(r.data.data ?? []); setTotal(r.data.total)
-      if (r.data.stats) setStats(r.data.stats) // absent on an outdated backend — keep zeros instead of crashing
+      if (r.data.stats) setStats({ inactive: 0, ...r.data.stats }) // absent on an outdated backend — keep zeros instead of crashing
       const last = pageSize === 0 ? 1 : Math.max(1, Math.ceil(r.data.total / pageSize))
       if (page > last) setPage(last)
     })
   }
-  useEffect(() => setPage(1), [businessId, q, type, status, locationId, pageSize, sort])
-  useEffect(() => { const t = setTimeout(load, 200); return () => clearTimeout(t) }, [businessId, q, type, status, locationId, page, pageSize, sort])
+  useEffect(() => setPage(1), [businessId, q, type, status, locationId, unitId, pageSize, sort])
+  useEffect(() => { const t = setTimeout(load, 200); return () => clearTimeout(t) }, [businessId, q, type, status, locationId, unitId, page, pageSize, sort])
+  useEffect(() => { setUnitId(''); getUnits(bizParams(businessId)).then((r) => setUnits(r.data)).catch(() => setUnits([])) }, [businessId])
   useEffect(() => { setLocationId(''); getLocations(bizParams(businessId)).then((r) => setLocations(r.data)).catch(() => setLocations([])) }, [businessId])
 
   // old deep link /employees?edit=<id> now opens the full page
@@ -81,8 +84,9 @@ export default function Employees() {
 
   return (
     <Layout title="Karyawan" subtitle="Employee Management 360">
-      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3 mb-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 mb-3">
         <StatCard label="Karyawan Aktif" value={stats.active} />
+        <StatCard label="Karyawan Tidak Aktif" value={stats.inactive} />
         <StatCard label="Tetap" value={stats.tetap} />
         <StatCard label="Kontrak" value={stats.kontrak} />
         <StatCard label="Freelance" value={stats.freelance} />
@@ -93,6 +97,7 @@ export default function Employees() {
           <input className="input w-64" placeholder="Cari nama, email, jabatan…" value={q} onChange={(e) => setQ(e.target.value)} />
           <select className="input" value={type} onChange={(e) => setType(e.target.value)}><option value="">Semua Jenis</option><option>Tetap</option><option>Kontrak</option><option>Freelance</option></select>
           <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}><option value="">Semua Status</option>{STATUSES.map((s) => <option key={s}>{s}</option>)}</select>
+          <select className="input" value={unitId} onChange={(e) => setUnitId(e.target.value)} aria-label="Filter unit organisasi"><option value="">Semua Unit</option>{units.map((u) => <option key={u.id} value={u.id}>{'\u00a0\u00a0'.repeat(Math.max(0, (u.level ?? 1) - 1))}{u.name}</option>)}</select>
           <select className="input" value={locationId} onChange={(e) => setLocationId(e.target.value)} aria-label="Filter lokasi"><option value="">Semua Lokasi</option>{locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select>
           {canEdit && <button className="btn-primary ml-auto" onClick={addNew}><Plus className="w-3.5 h-3.5 inline mr-1" />Karyawan</button>}
         </div>
